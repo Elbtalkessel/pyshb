@@ -1,0 +1,27 @@
+[project]
+name = "pyshb"
+version = "0.1.0"
+description = "Python Shell Command Builder"
+readme = "README.md"
+authors = [
+    { name = "Elbtalkessel", email = "ask@yan.kim" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.11,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.9",
+    "ty>=0.0.84",
+]
+
+# Isn't a direct project dependency, but Zed uses it.
+[tool.basedpyright]
+executionEnvironments = [
+  { root = "tests", extraPaths = ["src"] }
+]
