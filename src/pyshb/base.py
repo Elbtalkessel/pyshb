@@ -74,6 +74,9 @@ class Compose:
         self._chain.extend((op, other))
         return self
 
+    def __or__(self, other: str | Program):
+        return self.pipe(other)
+
     def and_(self, other: str | Program) -> Self:
         """
         AND (&&) operator.
@@ -81,6 +84,9 @@ class Compose:
         """
         self._chain.extend((Operator.AND, other))
         return self
+
+    def __and__(self, other: str | Program):
+        return self.and_(other)
 
     def or_(self, other: str | Program) -> Self:
         """
@@ -109,6 +115,9 @@ class Compose:
             op += "&"
         self._chain.extend((op, other))
         return self
+
+    def __gt__(self, other: str | Program):
+        return self.output(other)
 
     def append(self, other: str | Program, stderr: bool = False) -> Self:
         """

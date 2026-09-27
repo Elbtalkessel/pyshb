@@ -28,3 +28,12 @@ def test_any_command():
     assert str(cmd) == (
         r"cd / && grep --ignore-case |& grep --invert-match > /dev/null && echo 'done!'"
     )
+
+
+def test_any_command_special():
+    assert str(
+        _("echo 'hello world'")
+        | _("grep 'hello'")
+        & _("echo 'success!'")
+        > _("/dev/null")
+    ) == "echo 'hello world' | grep 'hello' && echo 'success!' > /dev/null"
