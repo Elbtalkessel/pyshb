@@ -37,3 +37,10 @@ def test_any_command_special():
         & _("echo 'success!'")
         > _("/dev/null")
     ) == "echo 'hello world' | grep 'hello' && echo 'success!' > /dev/null"
+
+
+def test_any_command_special_composable():
+    cmd = _("echo 'hello world'")
+    cmd |= _("grep 'hello'")
+    cmd &= _("echo 'success!'")
+    assert str(cmd) == "echo 'hello world' | grep 'hello' && echo 'success!'"
