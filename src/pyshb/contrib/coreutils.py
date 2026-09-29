@@ -15,7 +15,7 @@ class cd(ShellCommand):
 
 @dataclass
 class grep(ShellCommand):
-    file: str = field(default="")
+    file: str | None = field(default=None)
     color: bool = field(default=False, metadata={"flag": "--color"})
     ignore_case: bool = field(default=False, metadata={"flag": "--ignore-case"})
     invert_match: bool = field(default=False, metadata={"flag": "--invert-match"})
