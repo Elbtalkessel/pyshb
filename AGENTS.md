@@ -33,9 +33,10 @@ git clone git@gitea.x.home.arpa:python/pyshb.wiki.git /tmp/pyshb-wiki
 1. **Never push to `master`.** Work on `feature/issue-<n>-<slug>`. The one
    exception (the `AGENTS.md` bootstrap) is spent.
 2. **Never merge without an approving human review.** Run the gates, post a
-   review verdict as a `COMMENT`, request `@risus`, then stop. Once the approval
-   lands, merge it yourself: squash, and keep the branch. Never post `APPROVED`
-   on your own work.
+   review verdict as a `COMMENT`, request `@risus`, then stop. Never post
+   `APPROVED` on your own work. Once the approval lands on the current head,
+   merge it yourself: squash, keep the branch, close the issue, and tick the
+   milestone checkbox.
 3. **Never merge without the issue's acceptance criteria passing.** All three
    gates clean: `uv run pytest`, `uv run ruff check .`, `uv run ty check`.
 4. **Never suppress a type error** with `as any` or `# type: ignore`. Fix it.
