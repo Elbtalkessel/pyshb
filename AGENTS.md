@@ -10,6 +10,7 @@ Project knowledge lives in the Gitea wiki at `gitea.x.home.arpa/python/pyshb/wik
 | Page | Covers |
 | --- | --- |
 | `Workflow` | The milestone → issue → branch → PR → review → merge loop. **Read this before any task.** |
+| `AgentIdentity` | Which account, key, and token you push as, and how to verify it. **Read before your first push.** |
 | `Conventions` | Quality gates, branch/commit naming, Python style rules. |
 | `Architecture` | Three-layer design, AST node taxonomy, hard constraints. |
 | `Decisions` | Settled decisions — check before proposing an approach. |
