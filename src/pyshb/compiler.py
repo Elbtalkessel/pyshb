@@ -29,23 +29,32 @@ def _render_word(word: Word) -> str:
 def to_shell_string(node: ASTNode, dialect: str = "bash") -> str:
     """Compile an AST node to a shell string.
 
-    Currently emits a single POSIX-compatible rendering. The `dialect` parameter
-    is reserved for future use and does not yet alter output.
+    Phase 1 emits a single POSIX-compatible rendering. ``dialect`` is part of
+    the published signature but does not yet alter output; it is reserved for
+    a later phase rather than validated here.
 
     Args:
         node: The AST node to compile.
-        dialect: The target shell dialect (default: "bash").
+        dialect: The intended shell dialect.
 
     Returns:
         The compiled shell string.
+
+    Raises:
+        UnsupportedCompilationError: If a ``Pipeline`` carries a number of
+            operators that does not match its commands, which would otherwise
+            compile to a silently different command.
     """
     if isinstance(node, Word):
         return _render_word(node)
-    elif isinstance(node, Redirect):
+    if isinstance(node, Redirect):
         source = f"{node.source_fd}" if node.source_fd is not None else ""
-        target = str(node.target) if isinstance(node.target, int) else _render_word(node.target)
+        if isinstance(node.target, int):
+            target = str(node.target)
+        else:
+            target = _render_word(node.target)
         return f"{source}{node.op}{target}"
-    elif isinstance(node, SimpleCommand):
+    if isinstance(node, SimpleCommand):
         parts = []
         for name, val in node.env:
             parts.append(f"{name}={_render_word(val)}")
@@ -55,72 +64,86 @@ def to_shell_string(node: ASTNode, dialect: str = "bash") -> str:
         for redir in node.redirects:
             parts.append(to_shell_string(redir, dialect))
         return " ".join(parts)
-    elif isinstance(node, Pipeline):
+    if isinstance(node, Pipeline):
+        if len(node.operators) != len(node.commands) - 1:
+            raise UnsupportedCompilationError(
+                f"Pipeline has {len(node.commands)} commands but "
+                f"{len(node.operators)} operators; expected "
+                f"{len(node.commands) - 1}"
+            )
         parts = []
-        for i, cmd in enumerate(node.commands):
+        for index, cmd in enumerate(node.commands):
             parts.append(to_shell_string(cmd, dialect))
-            if i < len(node.operators):
-                parts.append(str(node.operators[i]))
+            if index < len(node.operators):
+                parts.append(str(node.operators[index]))
         return " ".join(parts)
-    elif isinstance(node, LogicalNode):
+    if isinstance(node, LogicalNode):
         left = to_shell_string(node.left, dialect)
         right = to_shell_string(node.right, dialect)
         return f"{left} {node.op} {right}"
-    elif isinstance(node, Subshell):
+    if isinstance(node, Subshell):
         body = to_shell_string(node.body, dialect)
         parts = ["(", body]
         for redir in node.redirects:
             parts.append(to_shell_string(redir, dialect))
         parts.append(")")
         return " ".join(parts)
-    elif isinstance(node, CommandGroup):
+    if isinstance(node, CommandGroup):
         body = to_shell_string(node.body, dialect)
         parts = ["{", f"{body};"]
         for redir in node.redirects:
             parts.append(to_shell_string(redir, dialect))
         parts.append("}")
         return " ".join(parts)
-    else:
-        raise UnsupportedCompilationError(f"Unsupported node type: {type(node).__name__}")
+    raise UnsupportedCompilationError(
+        f"Unsupported node type: {type(node).__name__}"
+    )
 
 
 def to_argv(node: ASTNode) -> list[str]:
     """Compile an AST node to an argv list.
 
-    Only SimpleCommand nodes without environment variables, redirections, or raw words
-    can be compiled to argv. Any other node type or a SimpleCommand with these features
-    will raise an UnsupportedCompilationError, because they require a shell to evaluate.
-
-    Note: CommandBuilder._flag_words() marks flag words as raw=True, so a builder with
-    any parameter set produces raw words and cannot be passed to to_argv.
+    Only ``SimpleCommand`` nodes without environment variables, redirections
+    or raw words can be compiled to argv. Anything else raises, because a
+    faithful argv list would require a shell to evaluate.
 
     Args:
         node: The AST node to compile.
 
     Returns:
-        A list of strings representing the argv array.
+        The executable followed by its arguments, as plain strings.
 
     Raises:
-        UnsupportedCompilationError: If the node cannot be represented as argv.
+        UnsupportedCompilationError: If the node cannot be represented as an
+            argv list without a shell. That includes every compound node, and
+            any ``env`` or redirect, which argv cannot carry.
+
+    Note:
+        ``CommandBuilder`` flags are marked ``raw=True`` so that a multi-token
+        flag such as ``-or -name`` is not folded into one quoted argument.
+        Raw words have no meaning in argv, so a builder with any parameter set
+        raises here; argv callers should pass positionals via ``.args()``.
     """
     if not isinstance(node, SimpleCommand):
-        raise UnsupportedCompilationError(f"Cannot compile {type(node).__name__} to argv")
-
+        raise UnsupportedCompilationError(
+            f"Cannot compile {type(node).__name__} to argv"
+        )
     if node.env:
-        raise UnsupportedCompilationError("Cannot compile command with environment variables to argv")
+        raise UnsupportedCompilationError(
+            "Cannot compile a command with env assignments to argv"
+        )
     if node.redirects:
-        raise UnsupportedCompilationError("Cannot compile command with redirections to argv")
-
-    argv = []
+        raise UnsupportedCompilationError(
+            "Cannot compile a command with redirections to argv"
+        )
     if node.executable.raw:
-        raise UnsupportedCompilationError("Cannot compile raw word to argv")
-    argv.append(node.executable.value)
+        raise UnsupportedCompilationError("Cannot compile a raw word to argv")
 
+    argv = [node.executable.value]
     for arg in node.args:
         if arg.raw:
-            raise UnsupportedCompilationError("Cannot compile raw word to argv")
+            raise UnsupportedCompilationError("Cannot compile a raw word to argv")
         argv.append(arg.value)
-
     return argv
 
 
