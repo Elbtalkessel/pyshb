@@ -60,9 +60,14 @@ class CommandBuilder:
         """Render the currently set parameters into shell words.
 
         ``bool`` is tested before ``int`` because ``bool`` subclasses ``int``;
-        the reverse order would render ``True`` as ``--flag=1``. Flags are
-        always raw so that ``shlex`` never folds a multi-token flag such as
-        ``-or -name`` into a single argument.
+        the reverse order would render ``True`` as ``--flag=1``. A boolean has
+        no value, so ``arg_join`` never applies to it.
+
+        Flags are marked raw uniformly. For a single-token flag this is
+        unobservable — ``shlex.quote("--posix")`` is ``--posix`` — but
+        ``shlex.quote("-or -name")`` is ``"'-or -name'"``, which folds two
+        tokens into one argument. Marking every flag raw means the multi-token
+        case cannot be special-cased and forgotten.
         """
         words: list[Word] = []
         for name, value in self.params.items():
