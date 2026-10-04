@@ -170,7 +170,23 @@ class CommandBuilder:
         )
 
 
+def adhoc(executable: str | Word) -> CommandBuilder:
+    """A builder for a program with no known flags. Use ``.args()``.
+
+    Args:
+        executable: The program name or path. A string is wrapped as a
+            literal word; a ``Word`` passes through untouched.
+
+    Returns:
+        A new builder with an empty schema.
+    """
+    if isinstance(executable, str):
+        executable = Word.literal(executable)
+    return CommandBuilder(SimpleCommand(executable=executable), schema={})
+
+
 __all__ = [
     "CommandBuilder",
     "ParamSpec",
+    "adhoc",
 ]
