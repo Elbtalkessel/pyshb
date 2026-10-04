@@ -2,6 +2,14 @@ class PyshbError(Exception):
     """Base exception for all pyshb errors."""
 
 
+class CompilationError(PyshbError):
+    """Base exception for compilation errors."""
+
+
+class UnsupportedCompilationError(CompilationError):
+    """Raised when an AST node cannot be compiled to the requested target."""
+
+
 class UnknownParameterError(PyshbError):
     """Raised when a parameter name is absent from the builder's schema."""
 
@@ -16,6 +24,8 @@ class UnknownParameterError(PyshbError):
 
 
 __all__ = [
+    "CompilationError",
     "PyshbError",
     "UnknownParameterError",
+    "UnsupportedCompilationError",
 ]
