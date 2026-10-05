@@ -1,4 +1,6 @@
 import shlex
+import shutil
+import subprocess
 
 import pytest
 
@@ -95,14 +97,14 @@ def test_node_rendering_shapes():
 
     out = Redirect(op=RedirectOp.WRITE, target=Word.literal("out"))
     sub_redir = Subshell(body=cmd1, redirects=(out,))
-    assert to_shell_string(sub_redir) == "( echo hi >out )"
+    assert to_shell_string(sub_redir) == "( echo hi ) >out"
 
     # CommandGroup
     grp = CommandGroup(body=cmd1)
     assert to_shell_string(grp) == "{ echo hi; }"
 
     grp_redir = CommandGroup(body=cmd1, redirects=(out,))
-    assert to_shell_string(grp_redir) == "{ echo hi; >out }"
+    assert to_shell_string(grp_redir) == "{ echo hi; } >out"
 
 
 def test_to_argv_happy_path():
@@ -242,3 +244,74 @@ def test_single_command_pipeline_is_allowed():
     """A one-command pipeline is degenerate but well-formed: no operators."""
     cmd = SimpleCommand(executable=Word.literal("ls"))
     assert to_shell_string(Pipeline(commands=(cmd,))) == "ls"
+
+
+requires_bash = pytest.mark.skipif(
+    shutil.which("bash") is None, reason="bash not available"
+)
+
+
+@requires_bash
+def test_compiled_output_parses_as_valid_shell():
+    """Every emitted compound form must be syntactically valid shell.
+
+    String-equality assertions structurally cannot catch this class of bug: a
+    misplaced redirect still renders as a plausible-looking string, so the test
+    passes while the shell rejects it. ``bash -n`` is the only cheap oracle for
+    validity, and the CommandGroup bug shipped past a green suite because no
+    such oracle existed.
+    """
+    cmd = SimpleCommand(
+        executable=Word.literal("echo"), args=(Word.literal("hi"),)
+    )
+    out = Redirect(op=RedirectOp.WRITE, target=Word.literal("out"))
+    cases = [
+        Subshell(body=cmd),
+        Subshell(body=cmd, redirects=(out,)),
+        CommandGroup(body=cmd),
+        CommandGroup(body=cmd, redirects=(out,)),
+    ]
+    for node in cases:
+        rendered = to_shell_string(node)
+        proc = subprocess.run(
+            ["bash", "-n", "-c", rendered],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, f"{rendered!r} rejected: {proc.stderr}"
+
+
+@requires_bash
+def test_compound_redirect_captures_the_whole_body(tmp_path):
+    """A redirect on a compound node applies to the entire body, not the last command.
+
+    Emitting it inside the delimiters binds it to the body's final command, so
+    earlier output escapes to stdout instead of reaching the target. The AST
+    documents these as applying to "the whole subshell" and "the group".
+    """
+    first = SimpleCommand(
+        executable=Word.literal("echo"), args=(Word.literal("a"),)
+    )
+    second = SimpleCommand(
+        executable=Word.literal("echo"), args=(Word.literal("b"),)
+    )
+    body = LogicalNode(left=first, op=LogicalOp.SEQUENCE, right=second)
+
+    for wrapper in (Subshell, CommandGroup):
+        target = tmp_path / wrapper.__name__
+        node = wrapper(
+            body=body,
+            redirects=(
+                Redirect(op=RedirectOp.WRITE, target=Word.literal(str(target))),
+            ),
+        )
+        proc = subprocess.run(
+            ["bash", "-c", to_shell_string(node)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout == "", f"output escaped: {proc.stdout!r}"
+        assert target.read_text() == "a\nb\n"

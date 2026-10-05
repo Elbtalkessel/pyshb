@@ -82,18 +82,20 @@ def to_shell_string(node: ASTNode, dialect: str = "bash") -> str:
         right = to_shell_string(node.right, dialect)
         return f"{left} {node.op} {right}"
     if isinstance(node, Subshell):
+        # Redirects follow the closing paren: inside, they would bind to the
+        # body's last command instead of the whole subshell.
         body = to_shell_string(node.body, dialect)
-        parts = ["(", body]
+        parts = ["(", body, ")"]
         for redir in node.redirects:
             parts.append(to_shell_string(redir, dialect))
-        parts.append(")")
         return " ".join(parts)
     if isinstance(node, CommandGroup):
+        # `;` must precede `}` and redirects must follow it, or the output is a
+        # syntax error.
         body = to_shell_string(node.body, dialect)
-        parts = ["{", f"{body};"]
+        parts = ["{", f"{body};", "}"]
         for redir in node.redirects:
             parts.append(to_shell_string(redir, dialect))
-        parts.append("}")
         return " ".join(parts)
     raise UnsupportedCompilationError(
         f"Unsupported node type: {type(node).__name__}"
