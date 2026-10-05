@@ -381,7 +381,7 @@ pyshb/
 - [x] Add `adhoc()` for programs outside the `contrib/` schema.
 - [x] Implement compiler with robust `shlex` quoting and argv generation.
 - [ ] Connect fluent methods (`.pipe()`, `.pipe_all()`, `.and_()`, `.or_()`, `.then()`, `.subshell()`, `.group()`, `.redirect_out()` and the rest of the redirection family).
-- [ ] Populate `src/pyshb/__init__.py` with a convenience facade.
+- [x] Populate `src/pyshb/__init__.py` with a convenience facade.
 
 ### Phase 2: AST Validation Engine
 - [ ] Enforce pipeline constraints (no empty segments, no double piping).
