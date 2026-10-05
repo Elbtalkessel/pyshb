@@ -23,8 +23,9 @@ class ASTNode(ABC):
         """Render this node as a shell command string.
 
         Args:
-            dialect: Shell dialect. Phase 1 emits one POSIX-compatible
-                rendering regardless, so this is accepted but not yet honoured.
+            dialect: Shell dialect. Accepted but not honoured: every dialect
+                renders identically, and the rendering may emit bash-only
+                constructs such as ``|&`` and ``<<<``.
 
         Returns:
             The rendered shell fragment.

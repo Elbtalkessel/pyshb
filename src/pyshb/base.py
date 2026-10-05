@@ -1,3 +1,21 @@
+"""Deprecated. Kept as the specification for the ergonomics we want.
+
+Superseded by :mod:`pyshb.ast`, :mod:`pyshb.builder` and
+:mod:`pyshb.compiler`. Build nothing new here.
+
+Retained as a reference, not as working code. ``Compose`` states the
+composition surface the library should end up with: build a command, then chain
+it with ``|``, ``&``, ``>``, ``<``, ``>>`` or ``+``, falling back to a named
+method where Python has no operator to borrow. ``ShellCommand`` is the same
+idea for per-program flags -- a dataclass field plus ``ParamMeta`` metadata
+renders the flag.
+
+The AST layer expresses all of it, but only by hand at the node level. The
+fluent methods and operator sugar to match are milestone 1 step 5, and
+``tests/test_shell_features.py`` pins the behaviour this module already has.
+Superseding this file is the plan; deleting it is not.
+"""
+
 import abc
 import enum
 import shlex

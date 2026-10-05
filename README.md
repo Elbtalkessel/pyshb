@@ -1,332 +1,221 @@
-# pyshb: Python Shell Command Builder
+# pyshb
 
-A lean, zero-dependency, typesafe Python library to construct, compose, and validate shell commands.
-
-Inspired by **Django's ORM QuerySet**, `pyshb` enables lazy, immutable, and conditional command construction without string concatenation hazards, paired with automated code generation for Linux core utilities and compile-time/run-time shell validation.
-
----
-
-## 1. Executive Summary & Design Vision
-
-### 1.1 The Django ORM Metaphor
-In Django ORM:
-* A `QuerySet` represents a lazy database query.
-* Calling `.filter()` or `.exclude()` does not mutate the existing query; it returns a **new, cloned `QuerySet`**.
-* Queries can be built conditionally using standard Python control flow (`if condition: qs = qs.filter(...)`).
-* Evaluation is deferred until the result is explicitly needed (`list(qs)`, `str(qs)`).
-* Complex conditions are composed using expressions (`Q` objects, `F` expressions).
-
-In `pyshb`:
-* A `Command` or `Pipeline` represents an immutable, lazy shell construct.
-* Adding flags, positional arguments, or redirects returns a **new, cloned command instance**.
-* Shell scripts and commands can be composed conditionally across branches without side effects.
-* Evaluation to a quoted shell string (`str(cmd)`) or an argument vector (`list(cmd)`) is deferred until execution or compilation.
-* High-level shell features (pipes, redirections, subshells, boolean operators) are composed with mathematical and ergonomic clarity.
-
-### 1.2 Core Pillars
-1. **Ergonomics & Conditional Building**: Effortless chaining, branching, and overriding without string concatenation bugs.
-2. **Typesafe Coreutils**: Rich, autocompleted, fully-typed dataclasses for standard Linux utilities, generated via automated manpage parsing.
-3. **Semantic & Syntax Validation**: Making illegal shell states impossible (e.g., double pipes, dangling redirects, invalid stream mappings, empty subshells).
-4. **Lean & Readable**: Standard library only (`dataclasses`, `enum`, `typing`, `shlex`, `abc`, `pathlib`), zero external runtime dependencies, minimal abstractions.
-
----
-
-## 2. Core Architecture & Mental Model
-
-The library is organized into three decoupled layers:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   1. Fluent Builder Layer                   │
-│   (Django-style immutable API: .set(), .when(), .pipe())     │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ builds / clones
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 2. Intermediate AST Layer                   │
-│   (CommandNode, PipelineNode, LogicalNode, RedirectNode)    │
-└──────────────┬──────────────────────────────┬───────────────┘
-               │ validates                    │ compiles
-               ▼                              ▼
-┌──────────────────────────────┐ ┌────────────────────────────┐
-│    3a. Validation Engine     │ │   3b. Compiler Engine      │
-│ (Pre-render syntax & semantic│ │ - Shell string (shlex)     │
-│       rule verification)     │ │ - Execve argv list[str]    │
-└──────────────────────────────┘ └────────────────────────────┘
-```
-
-### 2.1 The Intermediate Representation (AST)
-Rather than appending raw strings to a flat list, `pyshb` represents commands as an immutable Abstract Syntax Tree (AST):
-
-* **`Word`**: An atomic argument, either safely quoted or marked `Raw` (e.g., for environment variables `$VAR` or glob patterns `*.txt`).
-* **`SimpleCommand`**: An executable name, flag mappings, and positional arguments.
-* **`Redirect`**: Direction (`<`, `>`, `>>`, `&>`, `&>>`, `<<<`), file descriptor source (`1`, `2`), and target (file path or file descriptor `&1`).
-* **`Pipeline`**: A sequential chain of commands linked by `|` or `|&`.
-* **`CompoundCommand`**: Subshell `( ... )`, grouping `{ ...; }`, or control logic (`&&`, `||`, `;`).
-
----
-
-## 3. Ergonomics & Conditional Command Building
-
-### 3.1 Immutability & Cloning
-Every transformation returns a new instance. Existing instances are never mutated:
+Build shell commands in Python without string concatenation.
 
 ```python
-base_find = coreutils.find("/var/log").type("f")
+from pyshb import CommandBuilder, ParamSpec, SimpleCommand, Word
 
-# Branching does not alter base_find
-error_logs = base_find.name("*.error.log")
-all_logs = base_find.name("*.log")
-```
+GREP = {
+    "ignore_case": ParamSpec("--ignore-case"),
+    "line_numbers": ParamSpec("--line-number"),
+}
 
-### 3.2 Conditional Building Patterns
-
-#### Pattern A: Imperative Branching (Django ORM Style)
-```python
-cmd = coreutils.grep("needle")
-
-if case_insensitive:
-    cmd = cmd.set(ignore_case=True)
-
-if count_only:
-    cmd = cmd.set(count=True)
-elif max_count is not None:
-    cmd = cmd.set(max_count=max_count)
-
-if input_file:
-    cmd = cmd.args(input_file)
-```
-
-#### Pattern B: Declarative `.when()` Helper
-To maintain fluent method chains without breaking out into `if` statements:
-
-```python
 cmd = (
-    coreutils.grep("needle")
-    .when(case_insensitive, lambda c: c.set(ignore_case=True))
-    .when(count_only, lambda c: c.set(count=True))
-    .when(input_file is not None, lambda c: c.args(input_file))
+    CommandBuilder(SimpleCommand(executable=Word.literal("grep")), schema=GREP)
+    .args("Traceback")
+    .set(ignore_case=True, line_numbers=True)
+)
+
+cmd.root.to_shell_string()
+# grep --ignore-case --line-number Traceback
+```
+
+That is the whole interface. Five names are public; everything else is
+implementation you should not need.
+
+## Why
+
+Shell commands built by concatenating strings are quoted by luck. `find . -name
+*.log` looks right and breaks on any filename with a space in it. Fixing that
+means remembering `shlex.quote` at every call site, and forgetting one is a bug
+that only shows up on someone else's machine.
+
+`pyshb` holds the command as data until the moment it becomes a string, then
+quotes every argument for you. `Word.literal("*.log")` renders as `'*.log'`, so
+the glob reaches the shell intact instead of being expanded by your own shell
+first.
+
+## Install
+
+```console
+$ pip install pyshb
+```
+
+Python 3.14+. No runtime dependencies.
+
+## The five public names
+
+| Name | What it is |
+| --- | --- |
+| `Word` | One argument. `Word.literal(s)` quotes it, `Word.raw_word(s)` passes it through for `$VAR` and globs. |
+| `SimpleCommand` | An executable plus its arguments, redirections and `NAME=value` prefixes. |
+| `ParamSpec` | One flag: its spelling and how it joins its value, `arg_join="="` or `" "`. |
+| `CommandBuilder` | Wraps a command with a flag schema. Every method returns a new builder. |
+| `adhoc` | A builder with no schema, for programs the library knows nothing about. |
+
+## Declaring flags
+
+A schema is a plain dict of name to `ParamSpec`. The names are what you call
+`.set()` with.
+
+```python
+FIND = {
+    "type": ParamSpec("-type", arg_join=" "),
+    "name": ParamSpec("-name", arg_join=" "),
+}
+
+base_find = CommandBuilder(
+    SimpleCommand(executable=Word.literal("find")),
+    schema=FIND,
+).args("/var/log").set(type="f")
+```
+
+## Nothing mutates
+
+Every method returns a new builder, so you can branch freely.
+
+```python
+error_logs = base_find.set(name="*.error.log")
+recent = base_find.set(name="*.log")
+
+base_find.root.to_shell_string()
+# find -type f /var/log
+```
+
+The original is untouched. If a name is not in the schema, `.set()` raises
+`UnknownParameterError` naming what was available — rather than silently emitting
+a flag the program does not have.
+
+## Conditional commands
+
+Plain `if` statements work, because the builder is immutable:
+
+```python
+name = "*.log"
+
+cmd = base_find
+if name:
+    cmd = cmd.set(name=name)
+```
+
+There is also a `.when()` helper for staying in one chain:
+
+```python
+depth = None
+
+cmd = (
+    base_find
+    .when(name, lambda c: c.set(name=name))
+    .when(depth is not None, lambda c: c.args("-maxdepth", str(depth)))
 )
 ```
 
-#### Pattern C: Unsetting and Overriding Options
-```python
-# Unset a previously defined flag or reset positional arguments
-cmd = coreutils.ls("-la").set(all=False)
-```
+## Flags with no schema
 
-### 3.3 Dual Output Modes (Shell String vs. Process Vector)
-1. **Shell String (`str(cmd)`)**: Fully quoted and escaped for passing to `bash -c`, SSH, or script output.
-2. **Process Argv (`cmd.to_argv()`)**: Returns `list[str]` for simple single commands to pass directly to `subprocess.Popen(args, shell=False)` without shell overhead or shell injection risks.
-   *(Raises a validation error if called on pipelines or compound commands that require a shell parser).*
-
-### 3.4 The Ad-Hoc Escape Hatch
-The typed `contrib/` layer is a **convenience, not a gate**. The shell accepts any flag spelling for any program, so `pyshb` cannot enforce a closed flag set; its job is to make the dynamic path safe and comfortable.
-
-For unmodelled programs or unknown flags, use the `adhoc()` builder:
+The shell accepts any flag spelling for any program, so a schema cannot be a
+closed set. For programs the library knows nothing about, use `adhoc`:
 
 ```python
 from pyshb import Word, adhoc
 
-# Build a command with no known schema
 cmd = adhoc("my-custom-tool").args("--unknown-flag", "value")
-
-# Rawness is the escape hatch, and needs no second import
-cmd = adhoc(Word.raw_word("$PROG"))
+cmd = adhoc(Word.raw_word("$PROG")).args("--version")
 ```
 
-`.args(raw=True)` and `Word.raw_word` are the sanctioned dynamic path for passing raw shell expressions (like `$VAR` or globs) through the builder. Note that a raw word will be rejected by the upcoming `to_argv()` compiler (see issue #4), because raw shell expressions require a shell parser to evaluate and cannot be safely passed directly to `execve`.
+## Two ways out
 
----
-
-## 4. Composition & Shell Operators
-
-### 4.1 Python Operator Precedence vs. Shell Semantics
-
-> **The Operator Precedence Warning**:
-> In Python, bitwise AND (`&`) has higher precedence than bitwise OR (`|`).
-> `a | b & c` is parsed in Python as `a | (b & c)`.
-> However, in POSIX shell, pipes (`|`) bind tighter than logical AND (`&&`).
-> `a | b && c` in shell means `(a | b) && c`.
-
-To prevent subtle precedence bugs, `pyshb` supports two design principles:
-1. **Fluent Methods as First-Class Interface**: `.pipe()`, `.and_()`, `.or_()`, `.then()` are the unambiguous, canonical way to compose.
-2. **Explicit Operator Overloading**:
-   * `|`: Standard pipe (`|`)
-   * `&`: Logical AND (`&&`) (overloaded for command chaining, matching user intuition in shell builders)
-   * `^`: Logical OR (`||`) (or `.or_()`)
-   * `>`: Redirect output (`>`)
-   * `>>`: Append output (`>>`)
-   * `<`: Redirect input (`<`)
-3. **Subshells for Grouping**: `sh.subshell(cmd1 & cmd2).pipe(cmd3)` cleanly renders `(cmd1 && cmd2) | cmd3`.
-
-### 4.2 Supported Shell Constructs
-* **Pipelines**: Standard stdout pipe (`|`), stdout+stderr pipe (`|&`).
-* **Redirections**:
-  * Truncate stdout: `cmd > file` or `cmd.redirect_out("file")`
-  * Append stdout: `cmd >> file` or `cmd.append_out("file")`
-  * Redirect stderr: `cmd.redirect_err("file")`
-  * Redirect both: `cmd.redirect_all("file")`
-  * Redirect fd to fd: `cmd.redirect(2, to_fd=1)` (renders `2>&1`)
-  * Input from file: `cmd < file` or `cmd.redirect_in("file")`
-  * Here-string: `cmd.here_string("hello")` (renders `cmd <<< 'hello'`)
-  * Heredoc: `cmd.heredoc("data...", delimiter="EOF")`
-
----
-
-## 5. Validation System (Preventing Illegal Shell States)
-
-Validation occurs at two stages: **Construction Time** (fast type checks) and **AST Verification Time** (before string compilation or execution).
-
-### 5.1 Rules & Constraints
-
-| Illegal Shell State | Example of Invalid Usage | `pyshb` Solution / Exception |
-| :--- | :--- | :--- |
-| **Dangling Pipe** | `cmd.pipe()` without target | Signature requires `target: CommandLike`. |
-| **Double Pipe** | `cmd1.pipe("").pipe(cmd2)` | `InvalidPipelineError`: Empty intermediate pipeline segment. |
-| **Dangling Redirection** | `cmd > ""` or `cmd.redirect_out("")` | `RedirectionError`: Target cannot be empty or null. |
-| **Conflicting Stdout Targets** | `cmd > "a.txt" > "b.txt"` | `RedirectionConflictError`: Cannot redirect stdout to multiple destinations without `tee`. |
-| **Pipe After Stdout Redirection** | `(cmd > file).pipe(cmd2)` | `InvalidStreamWiringError`: stdout was redirected to file; piping stdout is contradictory. |
-| **Invalid Subshell / Block** | `sh.subshell()` with no commands | `EmptyCompoundCommandError`: Subshells must contain at least one command. |
-| **Argv Export on Compound Command** | `(cmd1 | cmd2).to_argv()` | `UnsupportedCompilationError`: Pipelines require shell interpretation. |
-| **Non-POSIX Features in POSIX Mode**| `\|&` or `<<<` with `dialect="posix"` | `DialectCompatibilityError`: Feature requires Bash/Zsh dialect. |
-
-### 5.2 Exception Hierarchy
 ```python
-class PyshbError(Exception): """Base exception for all pyshb errors."""
-
-class ValidationError(PyshbError): """Base exception for invalid shell semantics."""
-class InvalidPipelineError(ValidationError): ...
-class RedirectionError(ValidationError): ...
-class RedirectionConflictError(RedirectionError): ...
-class InvalidStreamWiringError(ValidationError): ...
-class DialectCompatibilityError(ValidationError): ...
+cmd.root.to_shell_string()   # a quoted shell string
 ```
 
----
+For `subprocess` you can skip the shell entirely. `to_argv` takes the node and
+returns `list[str]`, ready for `shell=False`:
 
-## 6. Manpages Parser & Typesafe Codegen
+```python
+from pyshb import CommandBuilder, SimpleCommand, Word
+from pyshb.compiler import to_argv
 
-The second major milestone is covering Linux utilities (GNU coreutils, util-linux, findutils) with fully typesafe, autocompleted Python classes.
+cmd = CommandBuilder(
+    SimpleCommand(executable=Word.literal("ls")), schema={}
+).args("/var/log")
 
-### 6.1 Codegen Pipeline Architecture
-The codegen pipeline operates as follows:
+argv = to_argv(cmd.root)
+# ['ls', '/var/log']
 
-```
-┌─────────────────────────────────┐
-│     1. Raw Input Sources        │
-│ - man -P cat <cmd> (groff/roff) │
-│ - <cmd> --help                  │
-│ - doclifter / mandoc -T json    │
-└────────────────┬────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────┐
-│    2. Parser & Normalizer       │
-│ - Flags: short (-l), long (--all)│
-│ - Value types: bool, str, int,  │
-│   path, choice/enum, repeated   │
-│ - Positional argument arity     │
-└────────────────┬────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────┐
-│     3. CommandSchema (IR)       │
-│ Normalized intermediate schema  │
-└────────────────┬────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────┐
-│     4. Python Code Generator    │
-│ - Emits typed dataclasses       │
-│ - Docstrings & typing overloads │
-│ - Python keyword sanitation     │
-└─────────────────────────────────┘
+# then: subprocess.run(argv, shell=False)
 ```
 
-### 6.2 Key Challenges & Solutions
+`to_argv` is strict. It raises `UnsupportedCompilationError` unless the result is
+a plain command with literal arguments: no pipes, no redirects, no `env` prefix,
+and no raw words. A faithful argv list for those would need a shell to evaluate,
+so it refuses rather than guessing.
 
-#### Challenge 1: Python Keyword Collisions
-Shell flags frequently collide with Python reserved keywords (`--in`, `--from`, `--type`, `--id`, `--format`, `--exec`).
-* **Solution**: Normalize field names by appending an underscore: `in_`, `from_`, `type_`, `exec_`. The `ParamMeta` retains the exact shell flag string (`flag="--type"`).
+That last condition bites more often than you would expect. Every flag set
+through a schema becomes a raw word, so a builder carrying any `arg_join=" "`
+parameter cannot be exported:
 
-#### Challenge 2: Flag Value Arity & Typing
-* Flags with no arguments: `bool = False` (`flag="--ignore-case"`).
-* Flags with required arguments: `str | None = None` or `int | None = None`.
-* Flags that can be repeated: `Sequence[str] = ()` (e.g. `--regexp pattern1 --regexp pattern2`).
-* Combined short flags: Support expanded long names or explicit short flags.
-
-#### Challenge 3: Flag Joining Styles
-Different utilities use different flag styles:
-* GNU style: `--option=value` or `--option value` (`arg_join="="` or `arg_join=" "`).
-* Single dash options: `find -name "*.py"` (`arg_join=" "`, `flag="-name"`).
-* Short flags with adjacent args: `-I<path>`.
-* **Solution**: `ProgramMeta` and `ParamMeta` specify `arg_join` per command and per parameter.
-
-#### Challenge 4: Static Generation vs. Dynamic Metaclasses
-* **Design Decision**: All coreutils are **pre-generated and committed** into `pyshb/contrib/coreutils.py` (and separate modules for other toolsets).
-* **Rationale**: Static code enables instant IDE autocomplete, docstring hover cards, zero import overhead, and 100% compatibility with static type checkers (`ty`, `basedpyright`, `mypy`).
-
----
-
-## 7. Recommended Repository Layout
-
-```text
-pyshb/
-├── pyproject.toml
-├── src/
-│   └── pyshb/
-│       ├── __init__.py           # Convenience facade: only what starts a command.
-│                                 # Everything else is module-tier — each module's
-│                                 # own __all__ is the real surface, and pyshb.base
-│                                 # is never re-exported here.
-│       ├── ast.py                # Node definitions (Word, SimpleCommand, Pipeline, Redirect)
-│       ├── builder.py            # Fluent CommandBuilder & PipelineBuilder (Django-style API)
-│       ├── compiler.py           # to_argv(node) — rendering is on the nodes: node.to_shell_string()
-│       ├── validator.py          # AST validation rules and error checks
-│       ├── exceptions.py         # Structured exception hierarchy
-│       ├── py.typed
-│       └── contrib/              # Generated high-level typesafe commands
-│           ├── __init__.py
-│           ├── coreutils.py      # ls, cp, mv, rm, cat, grep, find, etc.
-│           └── posix.py          # POSIX builtins (cd, test, echo, etc.)
-├── codegen/
-│   ├── __init__.py
-│   ├── schema.py             # CommandSchema, OptionSchema, ArgSchema
-│   ├── parsers/
-│   │   ├── help_parser.py    # Robust parser for `<cmd> --help`
-│   │   └── man_parser.py     # Parser for roff/man pages
-│   └── emitter.py            # Jinja2 / AST generator producing contrib/*.py
-└── tests/
-    ├── test_builder.py       # Immutability, cloning, .when(), .set()
-    ├── test_compiler.py      # Quoting, escapes, dialects
-    ├── test_validation.py    # Double pipe, dangling redirect, conflict checks
-    ├── test_coreutils.py     # Typed commands validation
-    └── test_codegen.py       # Manpage parsing regression tests
+```python
+to_argv(base_find.root)                    # fine: no parameters set
+to_argv(base_find.set(name="x").root)      # UnsupportedCompilationError
 ```
 
----
+Use `to_shell_string()` for anything with flags.
 
-## 8. Implementation Roadmap
+One thing to know: `dialect` is accepted and ignored. Every dialect renders
+identically, and that rendering can use bash-only syntax such as `|&` and `<<<`,
+so the output is not strictly POSIX.
 
-### Phase 1: Core AST & Immutable QuerySet Engine
-- [ ] Implement AST nodes (`Word`, `SimpleCommand`, `Redirect`, `Pipeline`, `Subshell`).
-- [ ] Implement `CommandBuilder` with immutable state transformations (`.set()`, `.args()`, `.when()`, `_clone()`).
-- [ ] Implement compiler with robust `shlex` quoting and argv generation.
-- [ ] Connect fluent methods (`.pipe()`, `.and_()`, `.or_()`, `.redirect_out()`).
+## Compositing
 
-### Phase 2: AST Validation Engine
-- [ ] Enforce pipeline constraints (no empty segments, no double piping).
-- [ ] Enforce stream integrity (no contradictory stdout targets, no piping dead stdout streams).
-- [ ] Implement dialect checkers (POSIX vs Bash features like `|&` and `<<<`).
-- [ ] Comprehensive validation test suite with descriptive error messages.
+Pipe and boolean operators are not built yet; the fluent methods `.pipe()`,
+`.and_()` and `.or_()` are on the roadmap. Today you compose at the node level:
 
-### Phase 3: Codegen & Manpage Parser
-- [ ] Build normalized `CommandSchema` data structures.
-- [ ] Upgrade `codegen/spiderman.py` into a structured parser extracting flags, parameter types, arity, and docstrings.
-- [ ] Build Python code emitter formatting clean dataclasses with complete type annotations.
+```python
+from pyshb.ast import LogicalNode, LogicalOp, Pipeline, PipeOp, SimpleCommand, Word
 
-### Phase 4: Full Coreutils Coverage & Documentation
-- [ ] Generate and verify GNU Core Utilities (`ls`, `cat`, `grep`, `mkdir`, `cp`, `mv`, `rm`, `chmod`, `sort`, `uniq`, `wc`, etc.).
-- [ ] Add integration tests verifying generated commands against actual shell execution.
-- [ ] Document public API recipes and Django ORM migration patterns.
+find = SimpleCommand(executable=Word.literal("find"), args=(Word.literal("*.py"),))
+grep = SimpleCommand(
+    executable=Word.literal("grep"),
+    args=(Word.literal("--quiet"), Word.literal("import")),
+)
+
+# find '*.py' |& grep --quiet import && echo done
+LogicalNode(
+    left=Pipeline(commands=(find, grep), operators=(PipeOp.ALL,)),
+    op=LogicalOp.AND,
+    right=SimpleCommand(executable=Word.literal("echo"), args=(Word.literal("done"),)),
+).to_shell_string()
+```
+
+Mind the precedence difference: in Python `&` binds tighter than `|`, in a shell
+`&&` binds tighter than `|`. `a | b & c` is not the same command either way.
+
+## What runs checks today
+
+| Illegal state | Result |
+| --- | --- |
+| `env` name bash cannot quote (`PATH; echo pwned;`) | `UnsupportedCompilationError` at construction |
+| Pipeline operator count does not match its commands | `UnsupportedCompilationError` |
+| `to_argv()` on anything but a plain command | `UnsupportedCompilationError` |
+| `.set()` with a name not in the schema | `UnknownParameterError` |
+
+All four subclass `PyshbError`. Broader semantic validation — dangling pipes,
+conflicting redirect targets, empty subshells — is planned and not implemented.
+
+## Not ready yet
+
+Typed `coreutils` classes (`ls`, `cat`, `grep` from parsed manpages) are Phase 3
+work. Nothing in this README depends on them. The roadmap lives in the project
+wiki.
+
+Two pre-AST modules exist as a reference for the composition ergonomics we want
+(operators where Python has them, named methods where it does not):
+`pyshb.base` and `pyshb.contrib.coreutils`. They are deprecated; the AST layer
+will grow fluent methods to match them (milestone 1 step 5).
+
+## More detail
+
+The README covers the common path. Architecture, the AST node taxonomy,
+decisions and the roadmap are in the project wiki at
+`gitea.x.home.arpa/python/pyshb/wiki` — reach there when something here does not
+answer your question.

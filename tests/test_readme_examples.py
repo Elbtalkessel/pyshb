@@ -1,3 +1,16 @@
+"""Pins the target ergonomics, not live behaviour.
+
+Every case here runs against :mod:`pyshb.base` and
+:mod:`pyshb.contrib.coreutils`, both deprecated. They are kept precisely
+because they are the clearest statement of how composing commands should feel --
+operators first, named methods where Python has no operator -- and that surface
+is not built yet at the AST layer.
+
+When milestone 1 step 5 lands the fluent composition methods, port these cases
+to the new surface rather than deleting them. They are the acceptance criteria
+for that step.
+"""
+
 from pyshb.base import Compose as _
 from pyshb.contrib.coreutils import cd, grep
 

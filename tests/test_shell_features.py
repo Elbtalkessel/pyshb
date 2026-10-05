@@ -1,3 +1,14 @@
+"""Pins the shell features and flag rendering we want, against deprecated code.
+
+Runs against :mod:`pyshb.base`, which is kept as the specification for the
+composition surface. The cases here are the acceptance criteria for milestone 1
+step 5: port them to the AST layer when the fluent methods land, do not delete
+them.
+
+``Raw`` here is not ``ast.Word.raw`` -- worth stating because the two modules
+are both present and only one of them is current.
+"""
+
 from dataclasses import dataclass, field
 
 from pyshb.base import Compose as _
