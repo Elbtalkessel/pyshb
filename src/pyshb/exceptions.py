@@ -21,11 +21,3 @@ class UnknownParameterError(PyshbError):
         self.known = known
         known_text = ", ".join(known) if known else "(none)"
         super().__init__(f"Unknown parameter {param!r}. Known parameters: {known_text}")
-
-
-__all__ = [
-    "CompilationError",
-    "PyshbError",
-    "UnknownParameterError",
-    "UnsupportedCompilationError",
-]

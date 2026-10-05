@@ -183,10 +183,3 @@ def adhoc(executable: str | Word) -> CommandBuilder:
     if isinstance(executable, str):
         executable = Word.literal(executable)
     return CommandBuilder(SimpleCommand(executable=executable), schema={})
-
-
-__all__ = [
-    "CommandBuilder",
-    "ParamSpec",
-    "adhoc",
-]
