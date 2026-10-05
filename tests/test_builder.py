@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from pyshb.ast import SimpleCommand, Word
-from pyshb.builder import CommandBuilder, ParamSpec
+from pyshb.builder import CommandBuilder, ParamSpec, adhoc
 from pyshb.exceptions import PyshbError, UnknownParameterError
 
 GREP = {
@@ -196,3 +196,50 @@ def test_existing_root_args_adopted_as_positionals():
     assert rendered(adopted.args("post")) == (("pre", False), ("post", False))
     assert values(adopted.set(ignore_case=True)) == ("--ignore-case", "pre")
     assert values(adopted.set(maxdepth=2)) == ("-maxdepth", "2", "pre")
+
+
+def test_adhoc_string_executable():
+    builder = adhoc("grep")
+    assert builder.root.executable == Word.literal("grep")
+
+
+def test_adhoc_word_executable():
+    word = Word.raw_word("$PROG")
+    builder = adhoc(word)
+    assert builder.root.executable is word
+    assert builder.root.executable.raw is True
+
+
+def test_adhoc_returns_command_builder():
+    builder = adhoc("grep")
+    assert isinstance(builder, CommandBuilder)
+
+
+def test_adhoc_set_raises_unknown_parameter():
+    builder = adhoc("grep")
+    with pytest.raises(UnknownParameterError) as caught:
+        builder.set(flag=True)
+    assert str(caught.value).endswith("(none)")
+
+
+def test_adhoc_args_chaining_preserves_order_and_immutability():
+    builder = adhoc("grep")
+    result1 = builder.args("a")
+    result2 = result1.args("b")
+
+    assert values(builder) == ()
+    assert values(result1) == ("a",)
+    assert values(result2) == ("a", "b")
+    assert builder is not result1
+    assert result1 is not result2
+
+
+def test_adhoc_root_materialisation_invariant():
+    builder = adhoc("grep").args("a", "b")
+    assert builder.root.args == builder.positionals
+    assert values(builder) == ("a", "b")
+
+
+def test_adhoc_args_raw_flag():
+    builder = adhoc("grep").args("a").args("b", raw=True)
+    assert rendered(builder) == (("a", False), ("b", True))

@@ -120,6 +120,20 @@ cmd = coreutils.ls("-la").set(all=False)
 2. **Process Argv (`cmd.to_argv()`)**: Returns `list[str]` for simple single commands to pass directly to `subprocess.Popen(args, shell=False)` without shell overhead or shell injection risks.
    *(Raises a validation error if called on pipelines or compound commands that require a shell parser).*
 
+### 3.4 The Ad-Hoc Escape Hatch
+The typed `contrib/` layer is a **convenience, not a gate**. The shell accepts any flag spelling for any program, so `pyshb` cannot enforce a closed flag set; its job is to make the dynamic path safe and comfortable.
+
+For unmodelled programs or unknown flags, use the `adhoc()` builder:
+
+```python
+from pyshb.builder import adhoc
+
+# Build a command with no known schema
+cmd = adhoc("my-custom-tool").args("--unknown-flag", "value")
+```
+
+`.args(raw=True)` and `Word.raw_word` are the sanctioned dynamic path for passing raw shell expressions (like `$VAR` or globs) through the builder. Note that a raw word will be rejected by the upcoming `to_argv()` compiler (see issue #4), because raw shell expressions require a shell parser to evaluate and cannot be safely passed directly to `execve`.
+
 ---
 
 ## 4. Composition & Shell Operators
