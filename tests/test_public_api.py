@@ -18,8 +18,8 @@ CONVENIENCE_TIER = frozenset(
     {"CommandBuilder", "ParamSpec", "SimpleCommand", "Word", "adhoc"}
 )
 
-#: Where each convenience name is declared. A name in the root must also be
-#: declared by its module, or the facade has become the only source of truth.
+#: Where each convenience name is defined. The root re-exports these; it does
+#: not define them, so each must still resolve to its own module.
 OWNING_MODULE = {
     "CommandBuilder": builder,
     "ParamSpec": builder,
@@ -28,13 +28,24 @@ OWNING_MODULE = {
     "Word": ast,
 }
 
+#: A representative name from each module tier, to prove that dropping
+#: ``__all__`` did not change what those modules expose.
+MODULE_TIER_SAMPLE = [
+    (ast, "Pipeline"),
+    (base, "Raw"),
+    (builder, "ParamSpec"),
+    (compiler, "to_argv"),
+    (exceptions, "PyshbError"),
+]
+
 
 def defined_names(module: ModuleType) -> frozenset[str]:
     """Every public name the module itself defines.
 
-    Filtering on ``__module__`` separates definitions from the stdlib names a
-    module imports, which is what makes this usable for ``pyshb.base``: it has
-    no ``__all__``, so its own surface cannot be read off one.
+    Filtering on ``__module__`` separates definitions from the names a module
+    imports. Since D016 no module below the root declares ``__all__``, so this
+    is the only way to read a module's own surface, and the facade-discipline
+    tests below all rest on it.
 
     Args:
         module: The module to inspect.
@@ -60,8 +71,8 @@ def test_convenience_name_is_the_object_its_module_defines(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(CONVENIENCE_TIER))
-def test_convenience_name_is_declared_by_its_module(name: str) -> None:
-    assert name in OWNING_MODULE[name].__all__
+def test_convenience_name_is_defined_by_its_own_module(name: str) -> None:
+    assert name in defined_names(OWNING_MODULE[name])
 
 
 @pytest.mark.parametrize("name", sorted(CONVENIENCE_TIER))
@@ -90,33 +101,42 @@ def test_node_types_and_operators_stay_module_tier() -> None:
     Everything else in the AST is reached *through* the builder, so no user
     needs it to begin a command.
     """
-    assert frozenset(ast.__all__) & set(pyshb.__all__) == {"SimpleCommand", "Word"}
+    assert defined_names(ast) & set(pyshb.__all__) == {"SimpleCommand", "Word"}
 
 
 def test_exceptions_stay_module_tier() -> None:
-    assert not set(exceptions.__all__) & set(pyshb.__all__)
+    assert not defined_names(exceptions) & set(pyshb.__all__)
 
 
 def test_compiler_functions_stay_module_tier() -> None:
-    assert not set(compiler.__all__) & set(pyshb.__all__)
+    assert not defined_names(compiler) & set(pyshb.__all__)
 
 
-#: ``base`` is absent by design: the pre-AST layer has never declared an ``__all__``.
-ALL_BEARING_MODULES = [ast, builder, compiler, exceptions]
+#: ``base`` is in this list on purpose: the legacy layer never declared one either.
+ALL_BEARING_MODULES = [ast, base, builder, compiler, exceptions]
 
 
 @pytest.mark.parametrize("module", ALL_BEARING_MODULES)
-def test_each_module_keeps_its_own_all(module: ModuleType) -> None:
-    assert getattr(module, "__all__", None), f"{module.__name__} lost its __all__"
+def test_only_the_root_declares_an_all(module: ModuleType) -> None:
+    """D016: ``__all__`` belongs to the package root alone.
 
-
-def test_the_facade_did_not_give_base_an_all() -> None:
-    """``base`` stays outside the tier that declares ``__all__``.
-
-    Handing the legacy layer an ``__all__`` would make it look like a peer of
-    the modules above, which is the promotion it must not get.
+    A per-module list exists only to constrain ``from mod import *``, which pyshb
+    neither uses nor expects of its users. Keeping one would be a second place to
+    edit per symbol for no reader.
     """
-    assert not hasattr(base, "__all__")
+    assert not hasattr(module, "__all__"), f"{module.__name__} declares an __all__"
+
+
+@pytest.mark.parametrize(("module", "name"), MODULE_TIER_SAMPLE)
+def test_module_tier_names_are_still_importable(module: ModuleType, name: str) -> None:
+    """Dropping ``__all__`` must not change what a module exposes.
+
+    ``__all__`` never gated a direct import, so this should hold by definition —
+    the test exists to catch that assumption breaking. Asserting against the
+    module object rather than ``getattr(pyshb, ...)`` keeps it independent of
+    whether anything happened to import that module first.
+    """
+    assert hasattr(module, name)
 
 
 def test_a_command_can_be_started_from_the_root_alone() -> None:

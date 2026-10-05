@@ -334,19 +334,3 @@ class CommandGroup(ASTNode):
         parts = ["{", f"{body};", "}"]
         parts.extend(redir.to_shell_string(dialect) for redir in self.redirects)
         return " ".join(parts)
-
-
-__all__ = [
-    "ASTNode",
-    "CommandGroup",
-    "CommandNode",
-    "LogicalNode",
-    "LogicalOp",
-    "PipeOp",
-    "Pipeline",
-    "Redirect",
-    "RedirectOp",
-    "SimpleCommand",
-    "Subshell",
-    "Word",
-]

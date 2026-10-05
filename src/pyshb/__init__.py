@@ -6,14 +6,15 @@ Every public name lives in exactly one of two tiers.
   needs to start building a command, gathered here so the common case needs one
   import.
 * **Module** — ``from pyshb.<module> import X``. Everything else: the AST node
-  types, the operator enums, the compiler functions, and the exceptions. Each
-  module keeps its own ``__all__``, and that is the authoritative surface for
-  it.
+  types, the operator enums, the compiler functions, and the exceptions. Those
+  modules declare no ``__all__`` of their own, because pyshb never uses star
+  imports and does not expect its users to. This list is therefore the only
+  declaration of the public surface the package makes.
 
 The root set does not grow automatically. A name belongs here only when a user
 cannot begin a command without it; anything reached *after* a command exists is
 module-tier, because the builder returns builders and the nodes are already
-reachable through them. See ``Decisions`` D012.
+reachable through them. See ``Decisions`` D012 and D016.
 
 The legacy pre-AST layer in ``pyshb.base`` stays out of the root entirely, so
 ``from pyshb import Raw`` does not resolve and cannot be mistaken for the AST

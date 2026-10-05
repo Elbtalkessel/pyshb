@@ -60,8 +60,3 @@ def to_argv(node: ASTNode) -> list[str]:
             raise UnsupportedCompilationError("Cannot compile a raw word to argv")
         argv.append(arg.value)
     return argv
-
-
-__all__ = [
-    "to_argv",
-]
