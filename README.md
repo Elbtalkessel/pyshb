@@ -208,6 +208,11 @@ Typed `coreutils` classes (`ls`, `cat`, `grep` from parsed manpages) are Phase 3
 work. Nothing in this README depends on them. The roadmap lives in the project
 wiki.
 
+Two pre-AST modules exist as a reference for the composition ergonomics we want
+(operators where Python has them, named methods where it does not):
+`pyshb.base` and `pyshb.contrib.coreutils`. They are deprecated; the AST layer
+will grow fluent methods to match them (milestone 1 step 5).
+
 ## More detail
 
 The README covers the common path. Architecture, the AST node taxonomy,

@@ -1,3 +1,16 @@
+"""Deprecated. The pre-AST coreutils, kept as a flag-rendering reference.
+
+Superseded by the AST builder plus a schema dict. Phase 3 generates these from
+manpages ([[Decisions]] D017); until then these three classes are the only
+worked example of per-program flag rendering, which is why they stay.
+
+Note the two shapes side by side: ``grep`` uses ``arg_join="="`` and ``find``
+uses ``arg_join=" "``, so ``--regexp=foo`` versus ``-type f``. The AST layer
+reproduces that with ``ParamSpec("-name", arg_join=" ")`` instead.
+
+Built on :mod:`pyshb.base`, which is itself deprecated.
+"""
+
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
