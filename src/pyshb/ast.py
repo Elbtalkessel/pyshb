@@ -157,6 +157,21 @@ class SimpleCommand(ASTNode):
     redirects: tuple[Redirect, ...] = ()
     env: tuple[tuple[str, Word], ...] = ()
 
+    def __post_init__(self) -> None:
+        """Reject env names that would break out of the assignment.
+
+        Raises:
+            UnsupportedCompilationError: If any env name is not a valid
+                identifier. Bash cannot quote an assignment name, so a name
+                like ``PATH; echo pwned;`` cannot be made safe by quoting and
+                would render as shell structure rather than as a name.
+        """
+        for name, _ in self.env:
+            if not (name.isidentifier() and name.isascii()):
+                raise UnsupportedCompilationError(
+                    f"env name {name!r} is not a valid shell identifier"
+                )
+
     @property
     def children(self) -> tuple[ASTNode, ...]:
         env_words = tuple(val for _, val in self.env)

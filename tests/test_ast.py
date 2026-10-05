@@ -1,5 +1,7 @@
 from dataclasses import FrozenInstanceError
 
+import pytest
+
 from pyshb.ast import (
     ASTNode,
     CommandGroup,
@@ -13,6 +15,7 @@ from pyshb.ast import (
     Subshell,
     Word,
 )
+from pyshb.exceptions import UnsupportedCompilationError
 
 
 def test_word_creation_and_factories():
@@ -61,6 +64,53 @@ def test_simple_command_children_and_env():
     )
 
     assert cmd.children == (cmd_word, env_val, arg1, arg2, redir)
+
+
+def test_env_name_must_be_a_valid_identifier():
+    """An env name that bash cannot accept in assignment position is refused.
+
+    The name is a bare str rather than a Word, so it is never quoted, and
+    quoting it would not help: bash rejects a quoted assignment name. A name
+    carrying shell structure therefore has to be rejected outright.
+    """
+    hostile = "PATH; echo pwned;"
+    with pytest.raises(UnsupportedCompilationError, match="not a valid shell"):
+        SimpleCommand(
+            executable=Word.literal("echo"),
+            env=((hostile, Word.literal("1")),),
+        )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["PATH", "_x", "A1", "a_b", "if", "class"],
+)
+def test_env_names_bash_accepts_are_allowed(name):
+    """Names bash accepts in assignment position must not be over-rejected.
+
+    `if` and `class` are included deliberately: they are Python keywords and
+    shell reserved words, but bash still accepts them as assignment targets,
+    so a keyword check would be wrong.
+    """
+    cmd = SimpleCommand(
+        executable=Word.literal("echo"),
+        env=((name, Word.literal("1")),),
+    )
+    assert cmd.to_shell_string() == f"{name}=1 echo"
+
+
+@pytest.mark.parametrize("name", ["1A", "A-B", "A.B", "A B", "", "Aé"])
+def test_env_names_bash_rejects_are_refused(name):
+    """Names bash cannot use as an assignment target are refused.
+
+    `Aé` is here because Python accepts it as an identifier but bash treats
+    it as a different name, which would silently not set what the caller meant.
+    """
+    with pytest.raises(UnsupportedCompilationError, match="not a valid shell"):
+        SimpleCommand(
+            executable=Word.literal("echo"),
+            env=((name, Word.literal("1")),),
+        )
 
 
 def test_pipeline_and_logical_nodes():
