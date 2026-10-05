@@ -3,27 +3,14 @@
 This module provides functions to compile an immutable AST tree into either a shell
 string or an argv list. Quoting is the security boundary: words that are not marked
 raw are safely quoted so the shell can never reinterpret them.
+
+Shell rendering lives on the nodes themselves (``ASTNode.to_shell_string``); this
+module is the published entry point over it, plus the argv export, which is not a
+rendering concern and stays here.
 """
 
-import shlex
-
-from pyshb.ast import (
-    ASTNode,
-    CommandGroup,
-    LogicalNode,
-    Pipeline,
-    Redirect,
-    SimpleCommand,
-    Subshell,
-    Word,
-)
+from pyshb.ast import ASTNode, SimpleCommand
 from pyshb.exceptions import UnsupportedCompilationError
-
-
-def _render_word(word: Word) -> str:
-    if word.raw:
-        return word.value
-    return shlex.quote(word.value)
 
 
 def to_shell_string(node: ASTNode, dialect: str = "bash") -> str:
@@ -41,65 +28,12 @@ def to_shell_string(node: ASTNode, dialect: str = "bash") -> str:
         The compiled shell string.
 
     Raises:
-        UnsupportedCompilationError: If a ``Pipeline`` carries a number of
-            operators that does not match its commands, which would otherwise
-            compile to a silently different command.
+        UnsupportedCompilationError: If the node cannot be rendered faithfully.
+            Currently raised by ``Pipeline`` when its operator count does not
+            match its command count, which would otherwise compile to a
+            silently different command.
     """
-    if isinstance(node, Word):
-        return _render_word(node)
-    if isinstance(node, Redirect):
-        source = f"{node.source_fd}" if node.source_fd is not None else ""
-        if isinstance(node.target, int):
-            target = str(node.target)
-        else:
-            target = _render_word(node.target)
-        return f"{source}{node.op}{target}"
-    if isinstance(node, SimpleCommand):
-        parts = []
-        for name, val in node.env:
-            parts.append(f"{name}={_render_word(val)}")
-        parts.append(_render_word(node.executable))
-        for arg in node.args:
-            parts.append(_render_word(arg))
-        for redir in node.redirects:
-            parts.append(to_shell_string(redir, dialect))
-        return " ".join(parts)
-    if isinstance(node, Pipeline):
-        if len(node.operators) != len(node.commands) - 1:
-            raise UnsupportedCompilationError(
-                f"Pipeline has {len(node.commands)} commands but "
-                f"{len(node.operators)} operators; expected "
-                f"{len(node.commands) - 1}"
-            )
-        parts = []
-        for index, cmd in enumerate(node.commands):
-            parts.append(to_shell_string(cmd, dialect))
-            if index < len(node.operators):
-                parts.append(str(node.operators[index]))
-        return " ".join(parts)
-    if isinstance(node, LogicalNode):
-        left = to_shell_string(node.left, dialect)
-        right = to_shell_string(node.right, dialect)
-        return f"{left} {node.op} {right}"
-    if isinstance(node, Subshell):
-        # Redirects follow the closing paren: inside, they would bind to the
-        # body's last command instead of the whole subshell.
-        body = to_shell_string(node.body, dialect)
-        parts = ["(", body, ")"]
-        for redir in node.redirects:
-            parts.append(to_shell_string(redir, dialect))
-        return " ".join(parts)
-    if isinstance(node, CommandGroup):
-        # `;` must precede `}` and redirects must follow it, or the output is a
-        # syntax error.
-        body = to_shell_string(node.body, dialect)
-        parts = ["{", f"{body};", "}"]
-        for redir in node.redirects:
-            parts.append(to_shell_string(redir, dialect))
-        return " ".join(parts)
-    raise UnsupportedCompilationError(
-        f"Unsupported node type: {type(node).__name__}"
-    )
+    return node.to_shell_string(dialect)
 
 
 def to_argv(node: ASTNode) -> list[str]:
