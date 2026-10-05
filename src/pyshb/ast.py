@@ -1,8 +1,11 @@
 import enum
+import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Self
+
+from pyshb.exceptions import UnsupportedCompilationError
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +16,19 @@ class ASTNode(ABC):
     @abstractmethod
     def children(self) -> tuple[ASTNode, ...]:
         """Direct child nodes for tree traversal."""
+        ...
+
+    @abstractmethod
+    def to_shell_string(self, dialect: str = "bash") -> str:
+        """Render this node as a shell command string.
+
+        Args:
+            dialect: Shell dialect. Phase 1 emits one POSIX-compatible
+                rendering regardless, so this is accepted but not yet honoured.
+
+        Returns:
+            The rendered shell fragment.
+        """
         ...
 
     def walk(self) -> Iterator[ASTNode]:
@@ -46,6 +62,19 @@ class Word(ASTNode):
     @property
     def children(self) -> tuple[ASTNode, ...]:
         return ()
+
+    def to_shell_string(self, dialect: str = "bash") -> str:
+        """Render this word, quoting it unless it is marked raw.
+
+        Args:
+            dialect: Unused; reserved for dialect-specific quoting.
+
+        Returns:
+            The word bare when raw, and shell-quoted otherwise.
+        """
+        if self.raw:
+            return self.value
+        return shlex.quote(self.value)
 
 
 class RedirectOp(enum.StrEnum):
@@ -81,6 +110,22 @@ class Redirect(ASTNode):
             return (self.target,)
         return ()
 
+    def to_shell_string(self, dialect: str = "bash") -> str:
+        """Render this redirection.
+
+        Args:
+            dialect: Passed through to a word target.
+
+        Returns:
+            The optional source fd, the operator, and the target.
+        """
+        source = f"{self.source_fd}" if self.source_fd is not None else ""
+        if isinstance(self.target, int):
+            target = str(self.target)
+        else:
+            target = self.target.to_shell_string(dialect)
+        return f"{source}{self.op}{target}"
+
 
 class PipeOp(enum.StrEnum):
     STDOUT = "|"
@@ -112,10 +157,42 @@ class SimpleCommand(ASTNode):
     redirects: tuple[Redirect, ...] = ()
     env: tuple[tuple[str, Word], ...] = ()
 
+    def __post_init__(self) -> None:
+        """Reject env names that would break out of the assignment.
+
+        Raises:
+            UnsupportedCompilationError: If any env name is not a valid
+                identifier. Bash cannot quote an assignment name, so a name
+                like ``PATH; echo pwned;`` cannot be made safe by quoting and
+                would render as shell structure rather than as a name.
+        """
+        for name, _ in self.env:
+            if not (name.isidentifier() and name.isascii()):
+                raise UnsupportedCompilationError(
+                    f"env name {name!r} is not a valid shell identifier"
+                )
+
     @property
     def children(self) -> tuple[ASTNode, ...]:
         env_words = tuple(val for _, val in self.env)
         return (self.executable, *env_words, *self.args, *self.redirects)
+
+    def to_shell_string(self, dialect: str = "bash") -> str:
+        """Render this command as env prefixes, executable, args, and redirects.
+
+        Args:
+            dialect: Passed through to every child node.
+
+        Returns:
+            The space-joined fragments of this command.
+        """
+        parts = [
+            f"{name}={value.to_shell_string(dialect)}" for name, value in self.env
+        ]
+        parts.append(self.executable.to_shell_string(dialect))
+        parts.extend(arg.to_shell_string(dialect) for arg in self.args)
+        parts.extend(redir.to_shell_string(dialect) for redir in self.redirects)
+        return " ".join(parts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +210,33 @@ class Pipeline(ASTNode):
     @property
     def children(self) -> tuple[ASTNode, ...]:
         return self.commands
+
+    def to_shell_string(self, dialect: str = "bash") -> str:
+        """Render this pipeline, validating the operator count first.
+
+        Args:
+            dialect: Passed through to every command.
+
+        Returns:
+            The commands joined by their operators.
+
+        Raises:
+            UnsupportedCompilationError: If the number of operators does not
+                match the number of commands minus one, which would otherwise
+                compile to a silently different command.
+        """
+        if len(self.operators) != len(self.commands) - 1:
+            raise UnsupportedCompilationError(
+                f"Pipeline has {len(self.commands)} commands but "
+                f"{len(self.operators)} operators; expected "
+                f"{len(self.commands) - 1}"
+            )
+        parts = []
+        for index, command in enumerate(self.commands):
+            parts.append(command.to_shell_string(dialect))
+            if index < len(self.operators):
+                parts.append(str(self.operators[index]))
+        return " ".join(parts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +257,19 @@ class LogicalNode(ASTNode):
     def children(self) -> tuple[ASTNode, ...]:
         return (self.left, self.right)
 
+    def to_shell_string(self, dialect: str = "bash") -> str:
+        """Render both operands joined by the logical operator.
+
+        Args:
+            dialect: Passed through to both operands.
+
+        Returns:
+            The rendered ``left op right`` fragment.
+        """
+        left = self.left.to_shell_string(dialect)
+        right = self.right.to_shell_string(dialect)
+        return f"{left} {self.op} {right}"
+
 
 @dataclass(frozen=True, slots=True)
 class Subshell(ASTNode):
@@ -170,6 +287,21 @@ class Subshell(ASTNode):
     def children(self) -> tuple[ASTNode, ...]:
         return (self.body, *self.redirects)
 
+    def to_shell_string(self, dialect: str = "bash") -> str:
+        """Render this subshell, keeping redirects outside the parens.
+
+        Args:
+            dialect: Passed through to the body and the redirects.
+
+        Returns:
+            The parenthesised body followed by its redirections.
+        """
+        # Redirects must follow the closing paren; inside, they would bind to
+        # the body's last command instead of the whole subshell.
+        parts = ["(", self.body.to_shell_string(dialect), ")"]
+        parts.extend(redir.to_shell_string(dialect) for redir in self.redirects)
+        return " ".join(parts)
+
 
 @dataclass(frozen=True, slots=True)
 class CommandGroup(ASTNode):
@@ -186,6 +318,22 @@ class CommandGroup(ASTNode):
     @property
     def children(self) -> tuple[ASTNode, ...]:
         return (self.body, *self.redirects)
+
+    def to_shell_string(self, dialect: str = "bash") -> str:
+        """Render this group as `{ body; }` followed by its redirects.
+
+        Args:
+            dialect: Passed through to the body and the redirects.
+
+        Returns:
+            The braced body followed by its redirections.
+        """
+        # `;` must precede `}` and redirects must follow it, or the result is
+        # a syntax error.
+        body = self.body.to_shell_string(dialect)
+        parts = ["{", f"{body};", "}"]
+        parts.extend(redir.to_shell_string(dialect) for redir in self.redirects)
+        return " ".join(parts)
 
 
 __all__ = [

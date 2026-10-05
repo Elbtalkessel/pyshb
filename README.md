@@ -276,7 +276,7 @@ pyshb/
 │       ├── __init__.py           # Public exports (Command, Raw, sh, subshell)
 │       ├── ast.py                # Node definitions (Word, SimpleCommand, Pipeline, Redirect)
 │       ├── builder.py            # Fluent CommandBuilder & PipelineBuilder (Django-style API)
-│       ├── compiler.py           # Compilers: to_shell_string(ast, dialect) & to_argv(ast)
+│       ├── compiler.py           # to_argv(node) — rendering is on the nodes: node.to_shell_string()
 │       ├── validator.py          # AST validation rules and error checks
 │       ├── exceptions.py         # Structured exception hierarchy
 │       ├── py.typed
