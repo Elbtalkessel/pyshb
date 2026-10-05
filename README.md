@@ -126,10 +126,13 @@ The typed `contrib/` layer is a **convenience, not a gate**. The shell accepts a
 For unmodelled programs or unknown flags, use the `adhoc()` builder:
 
 ```python
-from pyshb.builder import adhoc
+from pyshb import Word, adhoc
 
 # Build a command with no known schema
 cmd = adhoc("my-custom-tool").args("--unknown-flag", "value")
+
+# Rawness is the escape hatch, and needs no second import
+cmd = adhoc(Word.raw_word("$PROG"))
 ```
 
 `.args(raw=True)` and `Word.raw_word` are the sanctioned dynamic path for passing raw shell expressions (like `$VAR` or globs) through the builder. Note that a raw word will be rejected by the upcoming `to_argv()` compiler (see issue #4), because raw shell expressions require a shell parser to evaluate and cannot be safely passed directly to `execve`.
@@ -273,7 +276,10 @@ pyshb/
 ├── pyproject.toml
 ├── src/
 │   └── pyshb/
-│       ├── __init__.py           # Public exports (Command, Raw, sh, subshell)
+│       ├── __init__.py           # Convenience facade: only what starts a command.
+│                                 # Everything else is module-tier — each module's
+│                                 # own __all__ is the real surface, and pyshb.base
+│                                 # is never re-exported here.
 │       ├── ast.py                # Node definitions (Word, SimpleCommand, Pipeline, Redirect)
 │       ├── builder.py            # Fluent CommandBuilder & PipelineBuilder (Django-style API)
 │       ├── compiler.py           # to_argv(node) — rendering is on the nodes: node.to_shell_string()

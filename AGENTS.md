@@ -48,5 +48,6 @@ git clone git@gitea.x.home.arpa:python/pyshb.wiki.git /tmp/pyshb-wiki
 ## Environment
 
 - Python `>=3.14`, `uv` for tooling, `devenv` for the dev shell.
-- `src/pyshb/base.py` is the legacy pre-AST implementation — still tested and
-  still exported, but do not build new features on it.
+- `src/pyshb/base.py` is the legacy pre-AST implementation — still tested, but
+  module-tier only. It is never re-exported from the package root, and you must
+  not build new features on it.
