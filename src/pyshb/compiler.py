@@ -1,14 +1,8 @@
-"""Compiler layer for pyshb AST nodes.
+"""Argv export for pyshb AST nodes.
 
-Shell rendering is **not** here. Every node renders itself through
-``ASTNode.to_shell_string(dialect)``, so a command is rendered by calling that
-method on the node you already hold — there is no wrapper to route through.
-Quoting remains the security boundary: a ``Word`` with ``raw=False`` is
-``shlex.quote``d, so the shell can never reinterpret it.
-
-What stays here is the argv export. It is not a rendering concern — most nodes
-cannot produce an argv list at all, since they need a shell to evaluate — so it
-lives with the one node type that can, rather than on ``ASTNode``.
+Most nodes cannot produce an argv list, because they need a shell to evaluate.
+This module exports the one that can: ``to_argv()`` takes a node and returns
+plain strings for ``subprocess`` with ``shell=False``.
 """
 
 from pyshb.ast import ASTNode, SimpleCommand
@@ -34,10 +28,12 @@ def to_argv(node: ASTNode) -> list[str]:
             any ``env`` or redirect, which argv cannot carry.
 
     Note:
-        ``CommandBuilder`` flags are marked ``raw=True`` so that a multi-token
-        flag such as ``-or -name`` is not folded into one quoted argument.
-        Raw words have no meaning in argv, so a builder with any parameter set
-        raises here; argv callers should pass positionals via ``.args()``.
+        ``CommandBuilder._flag_words()`` emits bare boolean flags and the flag
+        half of a space-joined pair as ``raw=True``, because a multi-token flag
+        such as ``-or -name`` would otherwise be folded into one quoted
+        argument. Raw words have no meaning in argv, so such a builder raises
+        here. A value joined with ``=`` is one literal ``--flag=value`` word and
+        survives; positionals added with ``.args()`` are literal too.
     """
     if not isinstance(node, SimpleCommand):
         raise UnsupportedCompilationError(
