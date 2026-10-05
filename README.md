@@ -2,21 +2,18 @@
 
 A lean, zero-dependency, typesafe Python library to construct, compose, and validate shell commands.
 
-Inspired by **Django's ORM QuerySet**, `pyshb` enables lazy, immutable, and conditional command construction without string concatenation hazards, paired with automated code generation for Linux core utilities and compile-time/run-time shell validation.
+`pyshb` enables lazy, immutable, and conditional command construction without string concatenation hazards, paired with automated code generation for Linux core utilities and compile-time/run-time shell validation.
 
 ---
 
 ## 1. Executive Summary & Design Vision
 
-### 1.1 The Django ORM Metaphor
-In Django ORM:
-* A `QuerySet` represents a lazy database query.
-* Calling `.filter()` or `.exclude()` does not mutate the existing query; it returns a **new, cloned `QuerySet`**.
-* Queries can be built conditionally using standard Python control flow (`if condition: qs = qs.filter(...)`).
-* Evaluation is deferred until the result is explicitly needed (`list(qs)`, `str(qs)`).
-* Complex conditions are composed using expressions (`Q` objects, `F` expressions).
-
-In `pyshb`:
+### 1.1 Design Model
+* A `CommandBuilder` wrapping a `SimpleCommand`, or a `Pipeline` node, is an immutable shell construct.
+* Adding flags or positional arguments returns a **new, cloned instance**.
+* Commands can be built conditionally across branches without side effects.
+* Evaluation is deferred until the result is explicitly needed: `node.to_shell_string()` for a quoted shell string, `to_argv(node)` for an argument vector.
+* High-level shell features (pipes, redirections, subshells, boolean operators) are composed with mathematical and ergonomic clarity.
 * A `CommandBuilder` wrapping a `SimpleCommand`, or a `Pipeline` node, is an immutable shell construct.
 * Adding flags or positional arguments returns a **new, cloned instance**.
 * Commands can be built conditionally across branches without side effects.
@@ -27,7 +24,7 @@ In `pyshb`:
 1. **Ergonomics & Conditional Building**: Effortless chaining, branching, and overriding without string concatenation bugs.
 2. **Typesafe Coreutils**: Rich, autocompleted, fully-typed dataclasses for standard Linux utilities, generated via automated manpage parsing (Phase 3).
 3. **Semantic & Syntax Validation**: Rejecting illegal shell states (e.g., double pipes, dangling redirects, invalid stream mappings, empty subshells) before render (Phase 2).
-4. **Lean & Readable**: Standard library only (`dataclasses`, `enum`, `shlex`, `abc`, `collections.abc`), zero external runtime dependencies, minimal abstractions.
+4. **Lean & Readable**: Standard library only, zero external runtime dependencies, minimal abstractions.
 
 ---
 
@@ -38,15 +35,11 @@ The library is organized into three decoupled layers:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                   1. Fluent Builder Layer                   │
-│         (Django-style immutable API: .set(), .args(),        │
-│                          .when(), adhoc())                  │
 └──────────────────────────────┬──────────────────────────────┘
                                │ builds / clones
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                 2. Intermediate AST Layer                   │
-│  (Word, SimpleCommand, Redirect, Pipeline, LogicalNode,     │
-│                    Subshell, CommandGroup)                   │
 └──────────────┬──────────────────────────────┬───────────────┘
                │ validates                    │ argv export
                ▼                              ▼
@@ -103,7 +96,7 @@ produces one word (`--regexp=foo`), `" "` produces two (`-type f`).
 
 ### 3.2 Conditional Building Patterns
 
-#### Pattern A: Imperative Branching (Django ORM Style)
+#### Pattern A: Imperative Branching
 ```python
 GREP = {
     "ignore_case": ParamSpec("--ignore-case"),
@@ -352,7 +345,7 @@ pyshb/
 │       ├── ast.py                # Node definitions (Word, SimpleCommand, Redirect,
 │       │                         #   Pipeline, LogicalNode, Subshell, CommandGroup)
 │       ├── base.py               # Legacy pre-AST implementation (Compose, ShellCommand)
-│       ├── builder.py            # CommandBuilder, ParamSpec, adhoc() (Django-style API)
+│       ├── builder.py            # CommandBuilder, ParamSpec, adhoc()
 │       ├── compiler.py           # to_argv(node); rendering is on the nodes
 │       ├── exceptions.py         # PyshbError, CompilationError,
 │       │                         #   UnsupportedCompilationError, UnknownParameterError
@@ -397,4 +390,4 @@ pyshb/
 ### Phase 4: Full Coreutils Coverage & Documentation
 - [ ] Generate and verify GNU Core Utilities (`ls`, `cat`, `grep`, `mkdir`, `cp`, `mv`, `rm`, `chmod`, `sort`, `uniq`, `wc`, etc.).
 - [ ] Add integration tests verifying generated commands against actual shell execution.
-- [ ] Document public API recipes and Django ORM migration patterns.
+- [ ] Document public API recipes and migration patterns for existing users.
