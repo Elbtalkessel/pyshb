@@ -26,7 +26,7 @@ In `pyshb`:
 ### 1.2 Core Pillars
 1. **Ergonomics & Conditional Building**: Effortless chaining, branching, and overriding without string concatenation bugs.
 2. **Typesafe Coreutils**: Rich, autocompleted, fully-typed dataclasses for standard Linux utilities, generated via automated manpage parsing (Phase 3).
-3. **Semantic & Syntax Validation**: Rejecting illegal shell states (e.g., double pipes, dangling redirects, invalid stream mappings, empty subshells) before render.
+3. **Semantic & Syntax Validation**: Rejecting illegal shell states (e.g., double pipes, dangling redirects, invalid stream mappings, empty subshells) before render (Phase 2).
 4. **Lean & Readable**: Standard library only (`dataclasses`, `enum`, `shlex`, `abc`, `collections.abc`), zero external runtime dependencies, minimal abstractions.
 
 ---
@@ -150,7 +150,7 @@ cmd = grep_builder.set(count=False)
 ### 3.3 Dual Output Modes (Shell String vs. Process Vector)
 The builder holds the node under `.root`. Both output modes start from it.
 
-1. **Shell String (`cmd.root.to_shell_string()`)**: Every word with `raw=False` is `shlex.quote`d, so the shell cannot reinterpret it. The optional `dialect` argument is accepted but not yet honoured; output is POSIX-compatible either way.
+1. **Shell String (`cmd.root.to_shell_string()`)**: Every word with `raw=False` is `shlex.quote`d, so the shell cannot reinterpret it. The `dialect` argument is accepted but not honoured: every dialect renders identically, and that rendering can emit bash-only constructs such as `|&` and `<<<`, so it is not strictly POSIX.
 2. **Process Argv (`to_argv(cmd.root)`)**: Returns `list[str]` for a `SimpleCommand` with no env prefixes, no redirections, and no raw words. Pass it to `subprocess.Popen(argv, shell=False)` to skip the shell. Anything else raises `UnsupportedCompilationError`, because a faithful argv list would need a shell to evaluate.
 
 ### 3.4 The Ad-Hoc Escape Hatch
