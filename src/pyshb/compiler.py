@@ -1,39 +1,18 @@
 """Compiler layer for pyshb AST nodes.
 
-This module provides functions to compile an immutable AST tree into either a shell
-string or an argv list. Quoting is the security boundary: words that are not marked
-raw are safely quoted so the shell can never reinterpret them.
+Shell rendering is **not** here. Every node renders itself through
+``ASTNode.to_shell_string(dialect)``, so a command is rendered by calling that
+method on the node you already hold — there is no wrapper to route through.
+Quoting remains the security boundary: a ``Word`` with ``raw=False`` is
+``shlex.quote``d, so the shell can never reinterpret it.
 
-Shell rendering lives on the nodes themselves (``ASTNode.to_shell_string``); this
-module is the published entry point over it, plus the argv export, which is not a
-rendering concern and stays here.
+What stays here is the argv export. It is not a rendering concern — most nodes
+cannot produce an argv list at all, since they need a shell to evaluate — so it
+lives with the one node type that can, rather than on ``ASTNode``.
 """
 
 from pyshb.ast import ASTNode, SimpleCommand
 from pyshb.exceptions import UnsupportedCompilationError
-
-
-def to_shell_string(node: ASTNode, dialect: str = "bash") -> str:
-    """Compile an AST node to a shell string.
-
-    Phase 1 emits a single POSIX-compatible rendering. ``dialect`` is part of
-    the published signature but does not yet alter output; it is reserved for
-    a later phase rather than validated here.
-
-    Args:
-        node: The AST node to compile.
-        dialect: The intended shell dialect.
-
-    Returns:
-        The compiled shell string.
-
-    Raises:
-        UnsupportedCompilationError: If the node cannot be rendered faithfully.
-            Currently raised by ``Pipeline`` when its operator count does not
-            match its command count, which would otherwise compile to a
-            silently different command.
-    """
-    return node.to_shell_string(dialect)
 
 
 def to_argv(node: ASTNode) -> list[str]:
@@ -85,5 +64,4 @@ def to_argv(node: ASTNode) -> list[str]:
 
 __all__ = [
     "to_argv",
-    "to_shell_string",
 ]

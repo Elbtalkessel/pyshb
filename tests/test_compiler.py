@@ -16,7 +16,7 @@ from pyshb.ast import (
     Subshell,
     Word,
 )
-from pyshb.compiler import to_argv, to_shell_string
+from pyshb.compiler import to_argv
 from pyshb.exceptions import UnsupportedCompilationError
 
 
@@ -31,42 +31,42 @@ def test_quoting_round_trip():
     ]
     for val in values:
         word = Word.literal(val)
-        shell_str = to_shell_string(word)
+        shell_str = word.to_shell_string()
         assert shlex.split(shell_str) == [val]
 
 
 def test_raw_pass_through():
     """A raw word is emitted verbatim; a literal one is quoted."""
     raw = Word.raw_word("$HOME")
-    assert to_shell_string(raw) == "$HOME"
+    assert raw.to_shell_string() == "$HOME"
 
     literal = Word.literal("$HOME")
-    assert to_shell_string(literal) == "'$HOME'"
+    assert literal.to_shell_string() == "'$HOME'"
 
 
 def test_empty_literal_renders_as_empty_quotes():
     """Empty literal renders as ''."""
     empty = Word.literal("")
-    assert to_shell_string(empty) == "''"
+    assert empty.to_shell_string() == "''"
 
 
 def test_redirect_rendering():
     """Every RedirectOp renders, including source_fd prefixes and int targets."""
     # Basic redirect
     r1 = Redirect(op=RedirectOp.WRITE, target=Word.literal("out.log"))
-    assert to_shell_string(r1) == ">out.log"
+    assert r1.to_shell_string() == ">out.log"
 
     # With source_fd
     r2 = Redirect(op=RedirectOp.DUP_OUT, target=Word.literal("1"), source_fd=2)
-    assert to_shell_string(r2) == "2>&1"
+    assert r2.to_shell_string() == "2>&1"
 
     # With int target
     r3 = Redirect(op=RedirectOp.DUP_OUT, target=1, source_fd=2)
-    assert to_shell_string(r3) == "2>&1"
+    assert r3.to_shell_string() == "2>&1"
 
     # Here string
     r4 = Redirect(op=RedirectOp.HERE_STRING, target=Word.literal("hi"))
-    assert to_shell_string(r4) == "<<<hi"
+    assert r4.to_shell_string() == "<<<hi"
 
 
 def test_node_rendering_shapes():
@@ -76,35 +76,35 @@ def test_node_rendering_shapes():
 
     # Pipeline
     pipe = Pipeline(commands=(cmd1, cmd2), operators=(PipeOp.STDOUT,))
-    assert to_shell_string(pipe) == "echo hi | grep hi"
+    assert pipe.to_shell_string() == "echo hi | grep hi"
 
     pipe_all = Pipeline(commands=(cmd1, cmd2), operators=(PipeOp.ALL,))
-    assert to_shell_string(pipe_all) == "echo hi |& grep hi"
+    assert pipe_all.to_shell_string() == "echo hi |& grep hi"
 
     # Logical
     log_and = LogicalNode(left=cmd1, op=LogicalOp.AND, right=cmd2)
-    assert to_shell_string(log_and) == "echo hi && grep hi"
+    assert log_and.to_shell_string() == "echo hi && grep hi"
 
     log_or = LogicalNode(left=cmd1, op=LogicalOp.OR, right=cmd2)
-    assert to_shell_string(log_or) == "echo hi || grep hi"
+    assert log_or.to_shell_string() == "echo hi || grep hi"
 
     log_seq = LogicalNode(left=cmd1, op=LogicalOp.SEQUENCE, right=cmd2)
-    assert to_shell_string(log_seq) == "echo hi ; grep hi"
+    assert log_seq.to_shell_string() == "echo hi ; grep hi"
 
     # Subshell
     sub = Subshell(body=cmd1)
-    assert to_shell_string(sub) == "( echo hi )"
+    assert sub.to_shell_string() == "( echo hi )"
 
     out = Redirect(op=RedirectOp.WRITE, target=Word.literal("out"))
     sub_redir = Subshell(body=cmd1, redirects=(out,))
-    assert to_shell_string(sub_redir) == "( echo hi ) >out"
+    assert sub_redir.to_shell_string() == "( echo hi ) >out"
 
     # CommandGroup
     grp = CommandGroup(body=cmd1)
-    assert to_shell_string(grp) == "{ echo hi; }"
+    assert grp.to_shell_string() == "{ echo hi; }"
 
     grp_redir = CommandGroup(body=cmd1, redirects=(out,))
-    assert to_shell_string(grp_redir) == "{ echo hi; } >out"
+    assert grp_redir.to_shell_string() == "{ echo hi; } >out"
 
 
 def test_to_argv_happy_path():
@@ -199,7 +199,7 @@ def test_round_trip_property():
     ]
 
     for cmd in cmds:
-        assert shlex.split(to_shell_string(cmd)) == to_argv(cmd)
+        assert shlex.split(cmd.to_shell_string()) == to_argv(cmd)
 
 
 def test_builder_flag_words_interaction():
@@ -229,21 +229,21 @@ def test_pipeline_operator_count_mismatch_raises():
     three = (cmd, cmd, cmd)
 
     with pytest.raises(UnsupportedCompilationError):
-        to_shell_string(Pipeline(commands=three, operators=(PipeOp.STDOUT,)))
+        Pipeline(commands=three, operators=(PipeOp.STDOUT,)).to_shell_string()
 
     with pytest.raises(UnsupportedCompilationError):
-        to_shell_string(Pipeline(commands=three))
+        Pipeline(commands=three).to_shell_string()
 
     with pytest.raises(UnsupportedCompilationError):
-        to_shell_string(
-            Pipeline(commands=three, operators=(PipeOp.STDOUT,) * 3)
-        )
+        Pipeline(
+            commands=three, operators=(PipeOp.STDOUT,) * 3
+        ).to_shell_string()
 
 
 def test_single_command_pipeline_is_allowed():
     """A one-command pipeline is degenerate but well-formed: no operators."""
     cmd = SimpleCommand(executable=Word.literal("ls"))
-    assert to_shell_string(Pipeline(commands=(cmd,))) == "ls"
+    assert Pipeline(commands=(cmd,)).to_shell_string() == "ls"
 
 
 requires_bash = pytest.mark.skipif(
@@ -272,7 +272,7 @@ def test_compiled_output_parses_as_valid_shell():
         CommandGroup(body=cmd, redirects=(out,)),
     ]
     for node in cases:
-        rendered = to_shell_string(node)
+        rendered = node.to_shell_string()
         proc = subprocess.run(
             ["bash", "-n", "-c", rendered],
             capture_output=True,
@@ -307,7 +307,7 @@ def test_compound_redirect_captures_the_whole_body(tmp_path):
             ),
         )
         proc = subprocess.run(
-            ["bash", "-c", to_shell_string(node)],
+            ["bash", "-c", node.to_shell_string()],
             capture_output=True,
             text=True,
             check=False,
