@@ -482,13 +482,44 @@ def test_redirect_on_logical_node_targets_rightmost_command():
     assert c_node.redirects[0].source_fd == 2
 
 
-def test_redirect_on_subshell_targets_inner_rightmost():
+def test_redirect_on_subshell_targets_subshell_not_inner():
+    """``(a && b) > file`` redirects the whole subshell, not just ``b``.
+
+    A redirect after ``)`` binds to the subshell as a whole. Routing it
+    inside the parens would render ``(a && b > file)``, which redirects only
+    ``b``'s stdout — a silently different command.
+    """
     cmd = adhoc("a").and_(adhoc("b")).subshell().redirect_out("file")
     assert isinstance(cmd.root, Subshell)
+    assert len(cmd.root.redirects) == 1
+    assert cmd.root.redirects[0].target == Word.literal("file")
     inner = cmd.root.body
     assert isinstance(inner, LogicalNode)
     last = inner.right
     assert isinstance(last, SimpleCommand)
+    assert last.redirects == ()
+
+
+def test_redirect_on_group_targets_group_not_inner():
+    """``{ a && b; } > file`` redirects the whole group, not just ``b``."""
+    cmd = adhoc("a").and_(adhoc("b")).group().redirect_out("file")
+    assert isinstance(cmd.root, CommandGroup)
+    assert len(cmd.root.redirects) == 1
+    assert cmd.root.redirects[0].target == Word.literal("file")
+    inner = cmd.root.body
+    assert isinstance(inner, LogicalNode)
+    last = inner.right
+    assert isinstance(last, SimpleCommand)
+    assert last.redirects == ()
+
+
+def test_redirect_on_pipeline_with_subshell_targets_subshell():
+    """``a | (b && c) > file`` redirects the subshell, not ``c``."""
+    cmd = adhoc("a").pipe(adhoc("b").and_(adhoc("c")).subshell()).redirect_out("file")
+    assert isinstance(cmd.root, Pipeline)
+    last = cmd.root.commands[-1]
+    assert isinstance(last, Subshell)
+    assert len(last.redirects) == 1
     assert last.redirects[0].target == Word.literal("file")
 
 
@@ -496,6 +527,14 @@ def test_args_on_compound_root_raises_type_error():
     pipeline = adhoc("a").pipe(adhoc("b"))
     with pytest.raises(TypeError):
         pipeline.args("x")
+
+
+def test_set_on_compound_root_raises_type_error():
+    """``set()`` on a compound root would silently store params that never
+    materialise into any node, so it raises instead."""
+    pipeline = adhoc("a").pipe(adhoc("b"))
+    with pytest.raises(TypeError):
+        pipeline.set(ignore_case=True)
 
 
 def test_pipe_sugar_equals_pipe_method():
@@ -537,6 +576,18 @@ def test_redirect_in_sugar_equals_method():
 def test_operator_sugar_chains_with_methods():
     cmd = (adhoc("a") | adhoc("b")).pipe(adhoc("c")).and_(adhoc("d"))
     assert cmd.root.to_shell_string() == "a | b | c && d"
+
+
+def test_operator_sugar_accepts_command_node():
+    """The dunders accept a raw ``CommandNode``, not only a builder.
+
+    ``pipe``/``and_``/``or_`` accept ``CommandNode | Self``; the sugar
+    delegates to them, so ``builder | SimpleCommand(...)`` must type-check.
+    """
+    node = SimpleCommand(executable=Word.literal("b"))
+    via_pipe = adhoc("a").pipe(node)
+    via_or = adhoc("a") | node
+    assert via_pipe.root == via_or.root
 
 
 def test_composition_methods_leave_source_untouched():

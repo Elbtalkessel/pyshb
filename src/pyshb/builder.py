@@ -119,10 +119,18 @@ class CommandBuilder:
             A new builder. ``self`` is never modified.
 
         Raises:
+            TypeError: If the root is not a ``SimpleCommand``. A compound root
+                has no schema to validate against, so ``set()`` would silently
+                store params that never materialise into any node.
             UnknownParameterError: If a name is absent from the schema. Every
                 name is validated before anything is applied, so a call with
                 one bad name never half-applies.
         """
+        if not isinstance(self.root, SimpleCommand):
+            raise TypeError(
+                "set() requires a SimpleCommand root; use composition "
+                "methods to build or extend a compound node"
+            )
         for name in params:
             if name not in self.schema:
                 raise UnknownParameterError(name, tuple(sorted(self.schema)))
@@ -433,11 +441,11 @@ class CommandBuilder:
     # Operator sugar
     # ------------------------------------------------------------------
 
-    def __or__(self, other: Self) -> Self:
+    def __or__(self, other: CommandNode | Self) -> Self:
         """``a | b`` is sugar for ``a.pipe(b)``."""
         return self.pipe(other)
 
-    def __and__(self, other: Self) -> Self:
+    def __and__(self, other: CommandNode | Self) -> Self:
         """``a & b`` is sugar for ``a.and_(b)``.
 
         Note Python's ``&`` binds tighter than ``|``, which is the inverse
@@ -446,7 +454,7 @@ class CommandBuilder:
         """
         return self.and_(other)
 
-    def __xor__(self, other: Self) -> Self:
+    def __xor__(self, other: CommandNode | Self) -> Self:
         """``a ^ b`` is sugar for ``a.or_(b)``.
 
         The shell has no ``^`` operator, so this is purely an ``or_`` alias
@@ -485,16 +493,21 @@ class CommandBuilder:
         return Pipeline(commands=(self.root, other_node), operators=(operator,))
 
     def _add_redirect(self, redirect: Redirect) -> Self:
-        """Append ``redirect`` to the rightmost ``SimpleCommand`` in ``self.root``.
+        """Append ``redirect`` to the rightmost redirect target in ``self.root``.
 
-        A ``SimpleCommand`` root takes the redirect directly. A compound root
-        rebuilds the tree so the redirect lands on its rightmost leaf, which
-        is where a trailing ``>`` or ``<`` would bind in a shell.
+        A ``SimpleCommand``, ``Subshell`` or ``CommandGroup`` root takes the
+        redirect directly on its own ``redirects`` tuple. A ``Pipeline`` or
+        ``LogicalNode`` root rebuilds the tree so the redirect lands on its
+        rightmost child — which may itself be a ``Subshell`` or
+        ``CommandGroup`` that accepts the redirect on its own ``redirects``
+        tuple rather than descending into its body.
         """
+        if isinstance(self.root, SimpleCommand | Subshell | CommandGroup):
+            return self._clone(
+                root=replace(self.root, redirects=(*self.root.redirects, redirect))
+            )
         leaf = _rightmost(self.root)
         new_leaf = replace(leaf, redirects=(*leaf.redirects, redirect))
-        if isinstance(self.root, SimpleCommand):
-            return self._clone(root=new_leaf)
         return self._clone(root=_replace_rightmost(self.root, new_leaf))
 
     def _clone(self, **overrides: object) -> Self:
@@ -547,33 +560,41 @@ def _unwrap(node: CommandNode | CommandBuilder) -> CommandNode:
     return node
 
 
-def _rightmost(node: CommandNode) -> SimpleCommand:
-    """The rightmost ``SimpleCommand`` in a command tree.
+def _rightmost(node: CommandNode) -> SimpleCommand | Subshell | CommandGroup:
+    """The rightmost redirect target in a command tree.
 
-    A pipeline, logical node, subshell or group all delegate to their last
-    component: the leaf a trailing redirection would bind to in a shell.
+    A pipeline or logical node delegates to its last component. A subshell
+    or group is itself a redirect target — a redirect after ``)`` or ``}``
+    binds to the whole compound, not to its inner rightmost command.
     """
     match node:
         case SimpleCommand():
+            return node
+        case Subshell():
+            return node
+        case CommandGroup():
             return node
         case Pipeline(commands=cmds):
             return _rightmost(cmds[-1])
         case LogicalNode(right=right):
             return _rightmost(right)
-        case Subshell(body=body):
-            return _rightmost(body)
-        case CommandGroup(body=body):
-            return _rightmost(body)
 
 
-def _replace_rightmost(node: CommandNode, leaf: SimpleCommand) -> CommandNode:
-    """Return a copy of ``node`` whose rightmost ``SimpleCommand`` is ``leaf``.
+def _replace_rightmost(
+    node: CommandNode, leaf: SimpleCommand | Subshell | CommandGroup
+) -> CommandNode:
+    """Return a copy of ``node`` whose rightmost redirect target is ``leaf``.
 
     Used by ``_add_redirect`` to thread a new redirect through a compound
-    tree without disturbing its left side or operators.
+    tree without disturbing its left side or operators. A subshell or group
+    is replaced wholesale — its own ``redirects`` tuple is the target.
     """
     match node:
         case SimpleCommand():
+            return leaf
+        case Subshell():
+            return leaf
+        case CommandGroup():
             return leaf
         case Pipeline(commands=cmds, operators=ops):
             return Pipeline(
@@ -582,11 +603,3 @@ def _replace_rightmost(node: CommandNode, leaf: SimpleCommand) -> CommandNode:
             )
         case LogicalNode(left=left, op=op, right=right):
             return LogicalNode(left=left, op=op, right=_replace_rightmost(right, leaf))
-        case Subshell(body=body, redirects=redirects):
-            return Subshell(
-                body=_replace_rightmost(body, leaf), redirects=redirects
-            )
-        case CommandGroup(body=body, redirects=redirects):
-            return CommandGroup(
-                body=_replace_rightmost(body, leaf), redirects=redirects
-            )
