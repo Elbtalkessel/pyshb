@@ -48,11 +48,9 @@ git clone git@gitea.x.home.arpa:kb/gitea.wiki.git /tmp/gitea-wiki
 
 1. **Never push to `master`.** Work on `feature/issue-<n>-<slug>`. The one
    exception (the `AGENTS.md` bootstrap) is spent.
-2. **Never merge without an approving human review.** Run the gates, post a
-   review verdict as a `COMMENT`, request `@risus`, then stop. Never post
-   `APPROVED` on your own work. Once the approval lands on the current head,
-   merge it yourself: squash, keep the branch, close the issue, tick the
-   milestone checkbox.
+2. **The reviewer merges. Hard stop.** Run the gates, post a review verdict as
+   a `COMMENT`, request `@risus`, then stop. Never post `APPROVED` on your own
+   work; the agent does not merge.
 3. **Never merge without the issue's acceptance criteria passing.** All three
    gates clean: `uv run pytest`, `uv run ruff check .`, `uv run ty check`.
 4. **Never suppress a type error** with `as any` or `# type: ignore`. Fix it.
@@ -64,9 +62,9 @@ git clone git@gitea.x.home.arpa:kb/gitea.wiki.git /tmp/gitea-wiki
    `blocked_by` / `blocking` on the issue itself, not in prose. Same-repo only;
    cross-repo dependencies go in the body with a link. Details: `kb/gitea`
    `Dependencies`.
-9. **Commit as `nastya <pieceof@duck.com>`.** The VM default identity is not on
-   that account, so pass it explicitly and check
-   `git log -1 --format='%an <%ae>'`. Details: `kb/gitea` `AgentIdentity`.
+9. **Commit as the host-configured git identity.** On `atlas` that is
+   `nastya <pieceof@duck.com>`. Until `nix/nixos#21` lands, pass it explicitly
+   and check `git log -1 --format='%an <%ae>'`.
 
 ## Environment
 
