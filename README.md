@@ -167,28 +167,85 @@ so the output is not strictly POSIX.
 
 ## Compositing
 
-Pipe and boolean operators are not built yet; the fluent methods `.pipe()`,
-`.and_()` and `.or_()` are on the roadmap. Today you compose at the node level:
+Composition is fluent and immutable, like the rest of the builder. Every method
+returns a new builder, so a shared prefix is safe to branch from.
 
 ```python
-from pyshb.ast import LogicalNode, LogicalOp, Pipeline, PipeOp, SimpleCommand, Word
+from pyshb import adhoc
 
-find = SimpleCommand(executable=Word.literal("find"), args=(Word.literal("*.py"),))
-grep = SimpleCommand(
-    executable=Word.literal("grep"),
-    args=(Word.literal("--quiet"), Word.literal("import")),
-)
+find = adhoc("find").args("*.py")
+grep = adhoc("grep").args("--quiet", "import")
+done = adhoc("echo").args("done")
 
-# find '*.py' |& grep --quiet import && echo done
-LogicalNode(
-    left=Pipeline(commands=(find, grep), operators=(PipeOp.ALL,)),
-    op=LogicalOp.AND,
-    right=SimpleCommand(executable=Word.literal("echo"), args=(Word.literal("done"),)),
-).to_shell_string()
+cmd = find.pipe(grep).and_(done)
+cmd.root.to_shell_string()
+# find '*.py' | grep --quiet import && echo done
 ```
 
-Mind the precedence difference: in Python `&` binds tighter than `|`, in a shell
-`&&` binds tighter than `|`. `a | b & c` is not the same command either way.
+| Goal | Method | Operator sugar |
+| --- | --- | --- |
+| pipe stdout | `.pipe(other)` | `\|` |
+| pipe stdout and stderr | `.pipe_all(other)` | — |
+| run `other` if `self` succeeds | `.and_(other)` | `&` |
+| run `other` if `self` fails | `.or_(other)` | `^` |
+| run `other` regardless | `.then(other)` | — |
+| wrap in a subshell `( ... )` | `.subshell()` | — |
+| wrap in a command group `{ ...; }` | `.group()` | — |
+
+Pipelines stay flat: `a.pipe(b).pipe(c)` is one `Pipeline` with three commands
+and two operators, not nested pipelines. `Subshell` makes precedence explicit:
+
+```python
+# (a && b) | c
+cmd = adhoc("a").and_(adhoc("b")).subshell().pipe(adhoc("c"))
+```
+
+### Redirection
+
+Redirection methods append to the rightmost command. Earlier redirects are not
+replaced:
+
+```python
+cmd = (
+    adhoc("grep")
+    .args("-r", "TODO", ".")
+    .redirect_err("/dev/null")
+    .redirect_out("todos.txt")
+)
+cmd.root.to_shell_string()
+# grep -r TODO . 2>/dev/null >todos.txt
+```
+
+| Goal | Method |
+| --- | --- |
+| stdout to file | `.redirect_out(path)` |
+| append stdout | `.append_out(path)` |
+| stderr to file | `.redirect_err(path)` |
+| stdout and stderr to file | `.redirect_all(path)` |
+| stdin from file | `.redirect_in(path)` |
+| here-string | `.here_string(text)` |
+| heredoc | `.heredoc(body, delimiter="EOF")` |
+| fd duplication (e.g. `2>&1`) | `.redirect(source_fd, to_fd=1)` |
+
+### Operators are sugar
+
+`|`, `&` and `^` delegate to `.pipe()`, `.and_()` and `.or_()`; `>`, `<<` and
+`<` delegate to `.redirect_out()`, `.append_out()` and `.redirect_in()`. The
+named methods are the contract; operators are there when precedence is obvious.
+
+In Python, `&` binds tighter than `|`; in a shell, `|` binds tighter than `&&`.
+That is the opposite direction, so a chain mixing them must use the named
+methods or explicit parentheses:
+
+```python
+# (find ... | grep ...) && echo done
+cmd = (
+    adhoc("find").args("*.py") | adhoc("grep").args("--quiet", "import")
+) & adhoc("echo").args("done")
+```
+
+Note that `<<` maps to `.append_out()`, not to a heredoc; use `.heredoc()` for
+`<<`.
 
 ## What runs checks today
 
@@ -208,10 +265,9 @@ Typed `coreutils` classes (`ls`, `cat`, `grep` from parsed manpages) are Phase 3
 work. Nothing in this README depends on them. The roadmap lives in the project
 wiki.
 
-Two pre-AST modules exist as a reference for the composition ergonomics we want
-(operators where Python has them, named methods where it does not):
-`pyshb.base` and `pyshb.contrib.coreutils`. They are deprecated; the AST layer
-will grow fluent methods to match them (milestone 1 step 5).
+Two pre-AST modules, `pyshb.base` and `pyshb.contrib.coreutils`, still exist as
+the original reference for composition ergonomics. They are deprecated and
+retained; the fluent methods above are the supported way to compose commands.
 
 ## More detail
 
