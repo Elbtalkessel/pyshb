@@ -93,11 +93,11 @@ def test_node_rendering_shapes():
 
     # Subshell
     sub = Subshell(body=cmd1)
-    assert sub.to_shell_string() == "( echo hi )"
+    assert sub.to_shell_string() == "(echo hi)"
 
     out = Redirect(op=RedirectOp.WRITE, target=Word.literal("out"))
     sub_redir = Subshell(body=cmd1, redirects=(out,))
-    assert sub_redir.to_shell_string() == "( echo hi ) >out"
+    assert sub_redir.to_shell_string() == "(echo hi) >out"
 
     # CommandGroup
     grp = CommandGroup(body=cmd1)

@@ -99,11 +99,14 @@ class Redirect(ASTNode):
         op: Redirection operator (RedirectOp).
         target: Target destination (Word for file/string, int for fd duplicate).
         source_fd: Source file descriptor (e.g. 2 for 2>, None for default).
+        body: Heredoc body, set only when ``op`` is ``HEREDOC`` or
+            ``HEREDOC_STRIP``. Renders as the lines between the delimiter pair.
     """
 
     op: RedirectOp
     target: Word | int
     source_fd: int | None = None
+    body: str | None = None
 
     @property
     def children(self) -> tuple[ASTNode, ...]:
@@ -118,14 +121,23 @@ class Redirect(ASTNode):
             dialect: Passed through to a word target.
 
         Returns:
-            The optional source fd, the operator, and the target.
+            The optional source fd, the operator, and the target. A heredoc
+            with a body also emits that body followed by the closing
+            delimiter on their own lines, so the rendered fragment is a
+            complete heredoc rather than an open one.
         """
         source = f"{self.source_fd}" if self.source_fd is not None else ""
         if isinstance(self.target, int):
             target = str(self.target)
         else:
             target = self.target.to_shell_string(dialect)
-        return f"{source}{self.op}{target}"
+        head = f"{source}{self.op}{target}"
+        if (
+            self.body is not None
+            and self.op in (RedirectOp.HEREDOC, RedirectOp.HEREDOC_STRIP)
+        ):
+            return f"{head}\n{self.body}\n{target}"
+        return head
 
 
 class PipeOp(enum.StrEnum):
@@ -295,13 +307,21 @@ class Subshell(ASTNode):
             dialect: Passed through to the body and the redirects.
 
         Returns:
-            The parenthesised body followed by its redirections.
+            The parenthesised body followed by its redirections. The parens
+            sit flush against the body so the rendered form is
+            ``(a && b) | c`` rather than ``( a && b ) | c`` — the latter
+            parses back to the same command but obscures the grouping.
         """
         # Redirects must follow the closing paren; inside, they would bind to
         # the body's last command instead of the whole subshell.
-        parts = ["(", self.body.to_shell_string(dialect), ")"]
-        parts.extend(redir.to_shell_string(dialect) for redir in self.redirects)
-        return " ".join(parts)
+        body = self.body.to_shell_string(dialect)
+        redir_str = " ".join(
+            redir.to_shell_string(dialect) for redir in self.redirects
+        )
+        rendered = f"({body})"
+        if redir_str:
+            return f"{rendered} {redir_str}"
+        return rendered
 
 
 @dataclass(frozen=True, slots=True)
