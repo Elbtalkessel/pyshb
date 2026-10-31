@@ -52,7 +52,7 @@ git clone git@gitea.x.home.arpa:kb/gitea.wiki.git /tmp/gitea-wiki
    a `COMMENT`, request `@risus`, then stop. Never post `APPROVED` on your own
    work; the agent does not merge.
 3. **Never merge without the issue's acceptance criteria passing.** All three
-   gates clean: `uv run pytest`, `uv run ruff check .`, `uv run ty check`.
+   gates clean: `uv run pytest`, `ruff check .`, `ty check`.
 4. **Never suppress a type error** with `as any` or `# type: ignore`. Fix it.
 5. **Never delete a test** to make a gate pass.
 6. **Never add `.md` files to this repo** for planning or documentation. Put that

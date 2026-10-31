@@ -10,9 +10,18 @@
       };
     };
   };
+  # `ruff` and `ty` are provided by nixpkgs rather than PyPI because the PyPI
+  # wheels are dynamically linked and do not run on NixOS without a stub ld.
+  # Keeping them in the devenv shell makes the gate commands (`ruff check .`,
+  # `ty check`) work everywhere `devenv` works.
+  packages = [
+    pkgs.ruff
+    pkgs.ty
+  ];
   # The git hook runs the nixpkgs `ty` with language = "system", so unlike
-  # `uv run ty check` it does not resolve imports against the uv-managed
-  # environment at .devenv/state/venv. Left alone, the first test module to
+  # `ty check` run directly in the shell it does not automatically resolve
+  # imports against the uv-managed environment at .devenv/state/venv. Left alone,
+  # the first test module to
   # `import pytest` fails the hook with `unresolved-import`, even though
   # pytest is declared in [dependency-groups].
   #
