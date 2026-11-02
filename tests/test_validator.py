@@ -1,9 +1,11 @@
 import pytest
 
-from pyshb.ast import Pipeline, PipeOp, SimpleCommand, Word
+from pyshb.ast import Pipeline, PipeOp, Redirect, RedirectOp, SimpleCommand, Word
 from pyshb.exceptions import (
     CompilationError,
+    ConflictingRedirectError,
     DanglingPipeError,
+    DeadStdoutPipeError,
     EmptyPipelineError,
     PipelineOperatorMismatchError,
     PyshbError,
@@ -70,3 +72,83 @@ def test_validation_error_subclasses_compilation_error():
     assert issubclass(DanglingPipeError, ValidationError)
     assert issubclass(EmptyPipelineError, ValidationError)
     assert issubclass(PipelineOperatorMismatchError, ValidationError)
+    assert issubclass(ConflictingRedirectError, ValidationError)
+    assert issubclass(DeadStdoutPipeError, ValidationError)
+
+
+def test_conflicting_stdout_raises():
+    cmd = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(
+            Redirect(op=RedirectOp.WRITE, target=Word.literal("a")),
+            Redirect(op=RedirectOp.WRITE, target=Word.literal("b")),
+        ),
+    )
+    with pytest.raises(ConflictingRedirectError, match="conflicting redirect"):
+        validate(cmd)
+
+
+def test_conflicting_stdout_both_write_raises():
+    cmd = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(
+            Redirect(op=RedirectOp.WRITE, target=Word.literal("a")),
+            Redirect(op=RedirectOp.BOTH_WRITE, target=Word.literal("b")),
+        ),
+    )
+    with pytest.raises(ConflictingRedirectError, match="conflicting redirect"):
+        validate(cmd)
+
+
+def test_stderr_and_stdout_redirect_not_conflicting():
+    cmd = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(
+            Redirect(op=RedirectOp.WRITE, target=Word.literal("err"), source_fd=2),
+            Redirect(op=RedirectOp.WRITE, target=Word.literal("out")),
+        ),
+    )
+    assert validate(cmd) is None
+
+
+def test_pipe_after_stdout_redirect_raises():
+    first = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(Redirect(op=RedirectOp.WRITE, target=Word.literal("file")),),
+    )
+    other = SimpleCommand(executable=Word.literal("other"))
+    pipeline = Pipeline(commands=(first, other), operators=(PipeOp.STDOUT,))
+    with pytest.raises(DeadStdoutPipeError, match="dead stdout pipe"):
+        validate(pipeline)
+
+
+def test_pipe_after_stderr_redirect_ok():
+    first = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(
+            Redirect(op=RedirectOp.WRITE, target=Word.literal("err"), source_fd=2),
+        ),
+    )
+    other = SimpleCommand(executable=Word.literal("other"))
+    pipeline = Pipeline(commands=(first, other), operators=(PipeOp.STDOUT,))
+    assert validate(pipeline) is None
+
+
+def test_pipe_after_dup_merge_ok():
+    first = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(Redirect(op=RedirectOp.DUP_OUT, target=1, source_fd=2),),
+    )
+    other = SimpleCommand(executable=Word.literal("other"))
+    pipeline = Pipeline(commands=(first, other), operators=(PipeOp.STDOUT,))
+    assert validate(pipeline) is None
+
+
+def test_last_stage_may_redirect_stdout():
+    a = SimpleCommand(executable=Word.literal("a"))
+    b = SimpleCommand(
+        executable=Word.literal("b"),
+        redirects=(Redirect(op=RedirectOp.WRITE, target=Word.literal("out")),),
+    )
+    pipeline = Pipeline(commands=(a, b), operators=(PipeOp.STDOUT,))
+    assert validate(pipeline) is None

@@ -72,6 +72,28 @@ class PipelineOperatorMismatchError(ValidationError):
         )
 
 
+class ConflictingRedirectError(ValidationError):
+    """Raised when a node captures stdout to a file more than once."""
+
+    def __init__(self, node: ASTNode) -> None:
+        super().__init__(
+            node,
+            "conflicting redirect",
+            "more than one redirect captures stdout to a file",
+        )
+
+
+class DeadStdoutPipeError(ValidationError):
+    """Raised when a non-final pipeline stage redirects its stdout away."""
+
+    def __init__(self, node: Pipeline) -> None:
+        super().__init__(
+            node,
+            "dead stdout pipe",
+            "a pipeline stage before the last redirects its stdout away",
+        )
+
+
 class UnknownParameterError(PyshbError):
     """Raised when a parameter name is absent from the builder's schema."""
 

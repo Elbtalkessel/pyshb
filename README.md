@@ -259,8 +259,9 @@ Note that `<<` maps to `.append_out()`, not to a heredoc; use `.heredoc()` for
 All four subclass `PyshbError`. Broader semantic validation is available via
 `validate()` (module-tier, `from pyshb.validator import validate`), which walks a
 tree and raises a `ValidationError` on the first illegal state. Pipeline
-constraints — dangling pipes, empty segments, operator/command mismatches — are
-enforced today; conflicting redirect targets and empty subshells remain planned.
+constraints — dangling pipes, empty segments, operator/command mismatches — and
+stream integrity — conflicting stdout redirects, dead stdout pipes — are
+enforced today; empty subshells remain planned.
 
 ## Not ready yet
 
