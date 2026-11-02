@@ -161,9 +161,11 @@ to_argv(base_find.set(name="x").root)      # UnsupportedCompilationError
 
 Use `to_shell_string()` for anything with flags.
 
-One thing to know: `dialect` is accepted and ignored. Every dialect renders
-identically, and that rendering can use bash-only syntax such as `|&` and `<<<`,
-so the output is not strictly POSIX.
+One thing to know: rendering is dialect-independent. `to_shell_string(dialect=...)`
+accepts a dialect but renders every dialect identically, and that rendering can
+use bash-only syntax such as `|&` and `<<<`, so the output is not strictly
+POSIX. The place dialect is enforced is `validate()`:
+`validate(node, dialect="posix")` rejects those bash-only constructs.
 
 ## Compositing
 
@@ -259,9 +261,10 @@ Note that `<<` maps to `.append_out()`, not to a heredoc; use `.heredoc()` for
 All four subclass `PyshbError`. Broader semantic validation is available via
 `validate()` (module-tier, `from pyshb.validator import validate`), which walks a
 tree and raises a `ValidationError` on the first illegal state. Pipeline
-constraints — dangling pipes, empty segments, operator/command mismatches — and
-stream integrity — conflicting stdout redirects, dead stdout pipes — are
-enforced today; empty subshells remain planned.
+constraints — dangling pipes, empty segments, operator/command mismatches —
+stream integrity — conflicting stdout redirects, dead stdout pipes — and
+dialect — bash-only features such as `|&` and `<<<` rejected under
+`dialect="posix"` — are enforced today; empty subshells remain planned.
 
 ## Not ready yet
 

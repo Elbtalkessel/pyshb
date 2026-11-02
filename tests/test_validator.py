@@ -7,8 +7,10 @@ from pyshb.exceptions import (
     DanglingPipeError,
     DeadStdoutPipeError,
     EmptyPipelineError,
+    NonPosixFeatureError,
     PipelineOperatorMismatchError,
     PyshbError,
+    UnknownDialectError,
     ValidationError,
 )
 from pyshb.validator import validate
@@ -74,6 +76,8 @@ def test_validation_error_subclasses_compilation_error():
     assert issubclass(PipelineOperatorMismatchError, ValidationError)
     assert issubclass(ConflictingRedirectError, ValidationError)
     assert issubclass(DeadStdoutPipeError, ValidationError)
+    assert issubclass(NonPosixFeatureError, ValidationError)
+    assert issubclass(UnknownDialectError, ValidationError)
 
 
 def test_conflicting_stdout_raises():
@@ -151,4 +155,89 @@ def test_last_stage_may_redirect_stdout():
         redirects=(Redirect(op=RedirectOp.WRITE, target=Word.literal("out")),),
     )
     pipeline = Pipeline(commands=(a, b), operators=(PipeOp.STDOUT,))
+    assert validate(pipeline) is None
+
+
+def test_pipe_all_ok_under_bash():
+    a = SimpleCommand(executable=Word.literal("a"))
+    b = SimpleCommand(executable=Word.literal("b"))
+    pipeline = Pipeline(commands=(a, b), operators=(PipeOp.ALL,))
+    assert validate(pipeline, dialect="bash") is None
+
+
+def test_pipe_all_raises_under_posix():
+    a = SimpleCommand(executable=Word.literal("a"))
+    b = SimpleCommand(executable=Word.literal("b"))
+    pipeline = Pipeline(commands=(a, b), operators=(PipeOp.ALL,))
+    with pytest.raises(NonPosixFeatureError, match="non-POSIX feature"):
+        validate(pipeline, dialect="posix")
+
+
+def test_here_string_raises_under_posix():
+    cmd = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(Redirect(op=RedirectOp.HERE_STRING, target=Word.literal("x")),),
+    )
+    with pytest.raises(NonPosixFeatureError, match="non-POSIX feature"):
+        validate(cmd, dialect="posix")
+
+
+def test_both_write_raises_under_posix():
+    cmd = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(Redirect(op=RedirectOp.BOTH_WRITE, target=Word.literal("out")),),
+    )
+    with pytest.raises(NonPosixFeatureError, match="non-POSIX feature"):
+        validate(cmd, dialect="posix")
+
+
+def test_both_append_raises_under_posix():
+    cmd = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(
+            Redirect(op=RedirectOp.BOTH_APPEND, target=Word.literal("out")),
+        ),
+    )
+    with pytest.raises(NonPosixFeatureError, match="non-POSIX feature"):
+        validate(cmd, dialect="posix")
+
+
+def test_heredoc_ok_under_posix():
+    cmd = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(
+            Redirect(
+                op=RedirectOp.HEREDOC,
+                target=Word.literal("EOF"),
+                body="line",
+            ),
+        ),
+    )
+    assert validate(cmd, dialect="posix") is None
+
+
+def test_heredoc_strip_ok_under_posix():
+    cmd = SimpleCommand(
+        executable=Word.literal("cmd"),
+        redirects=(
+            Redirect(
+                op=RedirectOp.HEREDOC_STRIP,
+                target=Word.literal("EOF"),
+                body="line",
+            ),
+        ),
+    )
+    assert validate(cmd, dialect="posix") is None
+
+
+def test_unknown_dialect_raises():
+    cmd = SimpleCommand(executable=Word.literal("echo"))
+    with pytest.raises(UnknownDialectError, match="unknown dialect"):
+        validate(cmd, dialect="zsh")
+
+
+def test_default_dialect_is_bash():
+    a = SimpleCommand(executable=Word.literal("a"))
+    b = SimpleCommand(executable=Word.literal("b"))
+    pipeline = Pipeline(commands=(a, b), operators=(PipeOp.ALL,))
     assert validate(pipeline) is None

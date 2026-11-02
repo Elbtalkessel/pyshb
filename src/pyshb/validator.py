@@ -13,6 +13,7 @@ from pyshb.ast import (
     ASTNode,
     CommandGroup,
     Pipeline,
+    PipeOp,
     Redirect,
     RedirectOp,
     SimpleCommand,
@@ -23,7 +24,9 @@ from pyshb.exceptions import (
     DanglingPipeError,
     DeadStdoutPipeError,
     EmptyPipelineError,
+    NonPosixFeatureError,
     PipelineOperatorMismatchError,
+    UnknownDialectError,
 )
 
 # Redirect operators that capture stdout into a file.
@@ -34,29 +37,42 @@ _STDOUT_CAPTURE_OPS = (
     RedirectOp.BOTH_APPEND,
 )
 
+# Redirect operators that are bash extensions, not POSIX sh.
+_NON_POSIX_REDIRECT_OPS = (
+    RedirectOp.HERE_STRING,
+    RedirectOp.BOTH_WRITE,
+    RedirectOp.BOTH_APPEND,
+)
+
 
 def validate(node: ASTNode, dialect: str = "bash") -> None:
     """Validate an AST node, raising on the first illegal state.
 
-    Walks the tree in pre-order and applies the pipeline-constraint and
-    stream-integrity rules. Nested pipelines are legal when non-empty and are
-    validated recursively.
+    Walks the tree in pre-order and applies the pipeline-constraint,
+    stream-integrity and dialect rules. Nested pipelines are legal when
+    non-empty and are validated recursively.
 
     Args:
         node: The root AST node to validate.
-        dialect: Shell dialect. Accepted but not honoured: dialect validation
-            is a later step.
+        dialect: Shell dialect to validate against: ``"bash"`` (default, all
+            features legal) or ``"posix"`` (bash-only features rejected).
 
     Returns:
         ``None`` when the tree is valid.
 
     Raises:
         ValidationError: If any node violates a semantic rule.
+        UnknownDialectError: If ``dialect`` is neither ``"bash"`` nor
+            ``"posix"``.
     """
+    if dialect not in ("bash", "posix"):
+        raise UnknownDialectError(dialect)
     for current in node.walk():
         if isinstance(current, Pipeline):
             _validate_pipeline(current)
         _validate_redirects(current)
+        if dialect == "posix":
+            _validate_non_posix(current)
 
 
 def _validate_pipeline(pipeline: Pipeline) -> None:
@@ -100,6 +116,22 @@ def _validate_redirects(node: ASTNode) -> None:
     )
     if captures > 1:
         raise ConflictingRedirectError(node)
+
+
+def _validate_non_posix(node: ASTNode) -> None:
+    """Reject a bash-only construct when validating for POSIX sh.
+
+    Args:
+        node: The node to check.
+
+    Raises:
+        NonPosixFeatureError: If the node is a pipeline using ``|&``, or a
+            redirect using a bash-only operator (``<<<``, ``&>``, ``&>>``).
+    """
+    if isinstance(node, Pipeline) and PipeOp.ALL in node.operators:
+        raise NonPosixFeatureError(node, str(PipeOp.ALL))
+    if isinstance(node, Redirect) and node.op in _NON_POSIX_REDIRECT_OPS:
+        raise NonPosixFeatureError(node, str(node.op))
 
 
 def _redirects_of(node: ASTNode) -> tuple[Redirect, ...]:

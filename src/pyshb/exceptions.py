@@ -22,14 +22,15 @@ class ValidationError(CompilationError):
     """Raised when an AST node violates a semantic rule.
 
     Attributes:
-        node: The AST node that violates the rule.
+        node: The AST node that violates the rule, or ``None`` when the error
+            is not about a node (an unrecognised dialect).
         rule: The short name of the violated rule.
     """
 
-    node: ASTNode
+    node: ASTNode | None
     rule: str
 
-    def __init__(self, node: ASTNode, rule: str, detail: str) -> None:
+    def __init__(self, node: ASTNode | None, rule: str, detail: str) -> None:
         self.node = node
         self.rule = rule
         super().__init__(f"{rule}: {detail}")
@@ -91,6 +92,42 @@ class DeadStdoutPipeError(ValidationError):
             node,
             "dead stdout pipe",
             "a pipeline stage before the last redirects its stdout away",
+        )
+
+
+class NonPosixFeatureError(ValidationError):
+    """Raised when a bash-only feature appears under ``dialect="posix"``.
+
+    Attributes:
+        feature: The bash-only operator (e.g. ``|&``, ``<<<``).
+    """
+
+    feature: str
+
+    def __init__(self, node: ASTNode, feature: str) -> None:
+        self.feature = feature
+        super().__init__(
+            node,
+            "non-POSIX feature",
+            f"{feature} is a bash extension and is not valid POSIX sh",
+        )
+
+
+class UnknownDialectError(ValidationError):
+    """Raised when ``validate()`` is given an unrecognised dialect.
+
+    Attributes:
+        dialect: The unrecognised dialect value.
+    """
+
+    dialect: str
+
+    def __init__(self, dialect: str) -> None:
+        self.dialect = dialect
+        super().__init__(
+            None,
+            "unknown dialect",
+            f"{dialect!r} is not a recognised dialect; expected 'bash' or 'posix'",
         )
 
 
