@@ -92,13 +92,14 @@ def _validate_pipeline(pipeline: Pipeline) -> None:
     commands = pipeline.commands
     if len(commands) < 2:
         raise DanglingPipeError(pipeline)
-    if any(isinstance(command, Pipeline) and not command.commands for command in commands):
-        raise EmptyPipelineError(pipeline)
+    for index, command in enumerate(commands):
+        if isinstance(command, Pipeline) and not command.commands:
+            raise EmptyPipelineError(pipeline, index + 1)
     if len(pipeline.operators) != len(commands) - 1:
         raise PipelineOperatorMismatchError(pipeline)
-    for stage in commands[:-1]:
+    for index, stage in enumerate(commands[:-1]):
         if _redirects_stdout_away(stage):
-            raise DeadStdoutPipeError(pipeline)
+            raise DeadStdoutPipeError(pipeline, index + 1)
 
 
 def _validate_redirects(node: ASTNode) -> None:
@@ -111,11 +112,11 @@ def _validate_redirects(node: ASTNode) -> None:
         ConflictingRedirectError: If the node has more than one redirect that
             captures stdout to a file.
     """
-    captures = sum(
-        1 for redir in _redirects_of(node) if _captures_stdout_to_file(redir)
-    )
-    if captures > 1:
-        raise ConflictingRedirectError(node)
+    captures = [
+        redir for redir in _redirects_of(node) if _captures_stdout_to_file(redir)
+    ]
+    if len(captures) > 1:
+        raise ConflictingRedirectError(node, _node_label(node))
 
 
 def _validate_non_posix(node: ASTNode) -> None:
@@ -139,6 +140,17 @@ def _redirects_of(node: ASTNode) -> tuple[Redirect, ...]:
     if isinstance(node, (SimpleCommand, Subshell, CommandGroup)):
         return node.redirects
     return ()
+
+
+def _node_label(node: ASTNode) -> str:
+    """A short label naming a node, for error messages."""
+    if isinstance(node, SimpleCommand):
+        return f"command {node.executable.value!r}"
+    if isinstance(node, Subshell):
+        return "subshell"
+    if isinstance(node, CommandGroup):
+        return "command group"
+    return "command"
 
 
 def _redirects_stdout_away(node: ASTNode) -> bool:

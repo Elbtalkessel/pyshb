@@ -50,11 +50,11 @@ class DanglingPipeError(ValidationError):
 class EmptyPipelineError(ValidationError):
     """Raised when a pipeline contains an empty pipeline stage."""
 
-    def __init__(self, node: Pipeline) -> None:
+    def __init__(self, node: Pipeline, index: int) -> None:
         super().__init__(
             node,
             "empty pipeline segment",
-            "a pipeline cannot contain an empty stage between two pipes",
+            f"pipeline stage {index} is empty",
         )
 
 
@@ -76,22 +76,22 @@ class PipelineOperatorMismatchError(ValidationError):
 class ConflictingRedirectError(ValidationError):
     """Raised when a node captures stdout to a file more than once."""
 
-    def __init__(self, node: ASTNode) -> None:
+    def __init__(self, node: ASTNode, label: str) -> None:
         super().__init__(
             node,
-            "conflicting redirect",
-            "more than one redirect captures stdout to a file",
+            "conflicting stdout redirect",
+            f"{label} redirects stdout to more than one file",
         )
 
 
 class DeadStdoutPipeError(ValidationError):
     """Raised when a non-final pipeline stage redirects its stdout away."""
 
-    def __init__(self, node: Pipeline) -> None:
+    def __init__(self, node: Pipeline, index: int) -> None:
         super().__init__(
             node,
             "dead stdout pipe",
-            "a pipeline stage before the last redirects its stdout away",
+            f"pipeline stage {index} redirects its stdout away",
         )
 
 
