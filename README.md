@@ -256,8 +256,11 @@ Note that `<<` maps to `.append_out()`, not to a heredoc; use `.heredoc()` for
 | `to_argv()` on anything but a plain command | `UnsupportedCompilationError` |
 | `.set()` with a name not in the schema | `UnknownParameterError` |
 
-All four subclass `PyshbError`. Broader semantic validation — dangling pipes,
-conflicting redirect targets, empty subshells — is planned and not implemented.
+All four subclass `PyshbError`. Broader semantic validation is available via
+`validate()` (module-tier, `from pyshb.validator import validate`), which walks a
+tree and raises a `ValidationError` on the first illegal state. Pipeline
+constraints — dangling pipes, empty segments, operator/command mismatches — are
+enforced today; conflicting redirect targets and empty subshells remain planned.
 
 ## Not ready yet
 
