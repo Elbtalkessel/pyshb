@@ -1,0 +1,53 @@
+GREP(1)                          User Commands                          GREP(1)
+
+NAME
+     grep - print lines that match patterns
+
+SYNOPSIS
+     grep [OPTION]... PATTERNS [FILE]...
+     grep [OPTION]... -e PATTERNS ... [FILE]...
+     grep [OPTION]... -f PATTERN_FILE ... [FILE]...
+
+DESCRIPTION
+     grep searches for patterns in each FILE.
+
+OPTIONS
+   Generic Program Information
+     --help
+            Output a usage message and exit.
+
+     -V, --version
+            Output the version number of grep and exit.
+
+   Pattern Syntax
+     -E, --extended-regexp
+            Interpret PATTERNS as extended regular expressions.
+
+     -F, --fixed-strings
+            Interpret PATTERNS as fixed strings, not regular expressions.
+
+     -i, --ignore-case
+            Ignore case distinctions in patterns and input data.
+
+     -v, --invert-match
+            Invert the sense of matching, to select non-matching lines.
+
+   Matching Control
+     -e PATTERNS, --regexp=PATTERNS
+            Use PATTERNS as the patterns.
+
+     -f FILE, --file=FILE
+            Obtain patterns from FILE, one per line.
+
+     -m NUM, --max-count=NUM
+            Stop reading a file after NUM matching lines.
+
+     --color[=WHEN], --colour[=WHEN]
+            Surround the matched strings with escape sequences.
+
+   Context Line Control
+     -A NUM, --after-context=NUM
+            Print NUM lines of trailing context after matching lines.
+
+     -B NUM, --before-context=NUM
+            Print NUM lines of leading context before matching lines.
