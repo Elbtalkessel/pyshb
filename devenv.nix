@@ -15,6 +15,7 @@
   # Keeping them in the devenv shell makes the gate commands (`ruff check .`,
   # `ty check`) work everywhere `devenv` works.
   packages = [
+    pkgs.git
     pkgs.ruff
     pkgs.ty
   ];
