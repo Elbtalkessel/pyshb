@@ -6,12 +6,12 @@ slotted dataclass with complete type annotations, committed under
 the generated coreutils are source files, so IDE autocomplete, docstring hovers,
 zero import overhead and static type checking all work.
 
-The emitter is a dev-time tool: standard library only, never imported by
-:mod:`pyshb`, never shipped as a runtime dependency. Every function below is
-pure over the schema; only :func:`main` touches the filesystem (reading pinned
-manpage snapshots and writing the generated module), so regeneration is
-deterministic — the committed file is the byte-for-byte output of this module
-and is never hand-edited.
+The emitter is a dev-time tool, never imported by :mod:`pyshb`, never shipped as
+a runtime dependency. Generation is templated: :func:`emit_module` builds a plain
+view model from the schema and renders ``module.py.j2`` (Jinja, a codegen-only
+dependency). :func:`main` is the only function that touches the filesystem, so
+regeneration is deterministic — the committed file is the byte-for-byte output
+of ``python -m codegen.emit`` and is never hand-edited.
 
 Emission rules ([[Architecture]] "Phase 3 codegen pipeline"):
 
@@ -41,6 +41,8 @@ import keyword
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
+
+from jinja2 import Environment, FileSystemLoader
 
 from codegen.schema import (
     CommandSchema,
@@ -148,119 +150,69 @@ def _resolved_params(schema: CommandSchema) -> tuple[ParamSchema, ...]:
     return tuple(resolved)
 
 
-def _emit_class_docstring(
-    summary: str, attrs: Sequence[tuple[str, str]]
-) -> list[str]:
-    """Emit the Google-style class docstring, indented for the class body.
+#: The Jinja environment for ``module.py.j2``. Rendering emits Python source,
+#: not HTML, so autoescaping is off. ``quote`` and ``doc`` are the escaping
+#: helpers the template uses to build string literals and docstrings.
+_ENV = Environment(
+    loader=FileSystemLoader(str(Path(__file__).resolve().parent)),
+    autoescape=False,
+)
+_ENV.filters["quote"] = _quoted
+_ENV.filters["doc"] = _escape_doc
+
+
+def _view(schemas: Sequence[CommandSchema]) -> dict[str, object]:
+    """Reduce the schemas to the plain view model ``module.py.j2`` renders.
 
     Args:
-        summary: The one-line command summary.
-        attrs: ``(field_name, doc)`` pairs for the ``Attributes:`` block.
+        schemas: The command schemas, in emission order.
 
     Returns:
-        The docstring source lines including the triple-quote delimiters, each
-        already indented by four spaces.
+        A ``{"needs_sequence": bool, "commands": [...]}`` mapping. Each command
+        carries ``name``, ``summary``, ``fields`` (annotation/default/doc),
+        ``schema_entries`` (name/flag/arg_join) and ``build_params``
+        (name/arity/flag/arg_join).
     """
-    summary_line = _escape_doc(summary) or "A generated command wrapper."
-    lines = ['    """' + summary_line, ""]
-    lines.append("    Attributes:")
-    for name, doc in attrs:
-        if doc:
-            lines.append(f"        {name}: {_escape_doc(doc)}")
-        else:
-            lines.append(f"        {name}")
-    lines.append('    """')
-    return lines
-
-
-def _emit_build_lines(param: ParamSchema, join: str) -> list[str]:
-    """Emit the ``build`` method body for one parameter.
-
-    Booleans and single-valued flags go through ``set()``, which validates
-    against the schema; repeatable flags go through ``args()`` because ``set()``
-    stores one value per name and cannot accumulate a sequence.
-
-    Args:
-        param: The resolved parameter.
-        join: The resolved ``arg_join``.
-
-    Returns:
-        The indented source lines applying this parameter to the builder.
-    """
-    name = param.python_name
-    match param.arity:
-        case ParamArity.NONE:
-            return [
-                f"        if self.{name}:",
-                f"            builder = builder.set({name}=True)",
-            ]
-        case ParamArity.ONE:
-            return [
-                f"        if self.{name} is not None:",
-                f"            builder = builder.set({name}=self.{name})",
-            ]
-        case ParamArity.MANY:
-            if join == "=":
-                return [
-                    f"        for value in self.{name}:",
-                    f"            builder = builder.args({_quoted(param.flag + '=')} + value)",
-                ]
-            return [
-                f"        for value in self.{name}:",
-                f"            builder = builder.args({_quoted(param.flag)}, value)",
-            ]
-
-
-def emit_class(schema: CommandSchema) -> str:
-    """Emit the source of one frozen dataclass for ``schema``.
-
-    The result is a self-contained class definition (decorator, class, fields,
-    schema, build method) but does not carry its own imports; combine classes
-    with :func:`emit_module` to get a compilable module.
-
-    Args:
-        schema: The command schema.
-
-    Returns:
-        The class source, without a trailing newline.
-    """
-    resolved = _resolved_params(schema)
-    lines: list[str] = ["@dataclass(frozen=True, slots=True)", f"class {schema.name}:"]
-    lines.extend(
-        _emit_class_docstring(
-            schema.summary, [(p.python_name, p.doc) for p in resolved]
+    needs_sequence = False
+    commands: list[dict[str, object]] = []
+    for schema in schemas:
+        fields: list[dict[str, str]] = []
+        schema_entries: list[dict[str, str]] = []
+        build_params: list[dict[str, str]] = []
+        for param in _resolved_params(schema):
+            annotation, default = _field_annotation(param)
+            join = _effective_arg_join(schema, param)
+            if param.arity is ParamArity.MANY:
+                needs_sequence = True
+            fields.append(
+                {
+                    "name": param.python_name,
+                    "annotation": annotation,
+                    "default": default,
+                    "doc": param.doc,
+                }
+            )
+            schema_entries.append(
+                {"name": param.python_name, "flag": param.flag, "arg_join": join}
+            )
+            build_params.append(
+                {
+                    "name": param.python_name,
+                    "arity": param.arity.name,
+                    "flag": param.flag,
+                    "arg_join": join,
+                }
+            )
+        commands.append(
+            {
+                "name": schema.name,
+                "summary": schema.summary,
+                "fields": fields,
+                "schema_entries": schema_entries,
+                "build_params": build_params,
+            }
         )
-    )
-
-    for param in resolved:
-        annotation, default = _field_annotation(param)
-        lines.append(f"    {param.python_name}: {annotation} = {default}")
-
-    lines.append("")
-    lines.append("    schema: ClassVar[Mapping[str, ParamSpec]] = {")
-    for param in resolved:
-        join = _effective_arg_join(schema, param)
-        spec = (
-            f"ParamSpec(flag={_quoted(param.flag)}, arg_join=\" \")"
-            if join == " "
-            else f"ParamSpec(flag={_quoted(param.flag)})"
-        )
-        lines.append(f"        {_quoted(param.python_name)}: {spec},")
-    lines.append("    }")
-
-    lines.append("")
-    lines.append("    def build(self) -> CommandBuilder:")
-    lines.append("        builder = CommandBuilder(")
-    lines.append(
-        f"            SimpleCommand(executable=Word.literal({_quoted(schema.name)})),"
-    )
-    lines.append("            schema=self.schema,")
-    lines.append("        )")
-    for param in resolved:
-        lines.extend(_emit_build_lines(param, _effective_arg_join(schema, param)))
-    lines.append("        return builder")
-
-    return "\n".join(lines)
+    return {"needs_sequence": needs_sequence, "commands": commands}
 
 
 def emit_module(schemas: Sequence[CommandSchema]) -> str:
@@ -272,38 +224,8 @@ def emit_module(schemas: Sequence[CommandSchema]) -> str:
     Returns:
         The module source, ending with a trailing newline.
     """
-    needs_sequence = any(
-        param.arity is ParamArity.MANY for schema in schemas for param in schema.params
-    )
-    lines = [
-        '"""Generated coreutils wrappers — do not edit by hand.',
-        "",
-        "Emitted by :mod:`codegen.emit` from the pinned manpage snapshots in",
-        "``tests/fixtures/``. Regenerate with ``python -m codegen.emit``; this file",
-        "is the committed output of that run and is never hand-edited.",
-        "",
-        "Each class is a frozen dataclass whose fields are the command's flags.",
-        "Build a :class:`pyshb.builder.CommandBuilder` with :meth:`build`.",
-        '"""',
-        "",
-    ]
-    abc_imports = ["Mapping"]
-    if needs_sequence:
-        abc_imports.append("Sequence")
-    lines.append(f"from collections.abc import {', '.join(abc_imports)}")
-    lines.append("from dataclasses import dataclass")
-    lines.append("from typing import ClassVar")
-    lines.append("")
-    lines.append("from pyshb.ast import SimpleCommand, Word")
-    lines.append("from pyshb.builder import CommandBuilder, ParamSpec")
-    lines.append("")
-    lines.append("")
-    for index, schema in enumerate(schemas):
-        if index:
-            lines.append("")
-            lines.append("")
-        lines.append(emit_class(schema))
-    return "\n".join(lines) + "\n"
+    template = _ENV.get_template("module.py.j2")
+    return template.render(**_view(schemas))
 
 
 def _read_fixture(path: Path) -> list[str]:

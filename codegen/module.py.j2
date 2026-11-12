@@ -1,0 +1,61 @@
+"""Generated coreutils wrappers — do not edit by hand.
+
+Emitted by :mod:`codegen.emit` from the pinned manpage snapshots in
+``tests/fixtures/``. Regenerate with ``python -m codegen.emit``; this file
+is the committed output of that run and is never hand-edited.
+
+Each class is a frozen dataclass whose fields are the command's flags.
+Build a :class:`pyshb.builder.CommandBuilder` with :meth:`build`.
+"""
+
+from collections.abc import Mapping{% if needs_sequence %}, Sequence{% endif %}
+from dataclasses import dataclass
+from typing import ClassVar
+
+from pyshb.ast import SimpleCommand, Word
+from pyshb.builder import CommandBuilder, ParamSpec
+
+
+{% for command in commands %}{% if not loop.first %}
+
+{% endif %}@dataclass(frozen=True, slots=True)
+class {{ command.name }}:
+    """{{ command.summary | doc }}
+
+    Attributes:
+{%- for field in command.fields %}
+        {{ field.name }}{% if field.doc %}: {{ field.doc | doc }}{% endif %}
+{%- endfor %}
+    """
+{%- for field in command.fields %}
+    {{ field.name }}: {{ field.annotation }} = {{ field.default }}
+{%- endfor %}
+
+    schema: ClassVar[Mapping[str, ParamSpec]] = {
+{%- for entry in command.schema_entries %}
+        "{{ entry.name }}": ParamSpec(flag={{ entry.flag | quote }}{% if entry.arg_join == " " %}, arg_join=" "{% endif %}),
+{%- endfor %}
+    }
+
+    def build(self) -> CommandBuilder:
+        builder = CommandBuilder(
+            SimpleCommand(executable=Word.literal("{{ command.name }}")),
+            schema=self.schema,
+        )
+{%- for param in command.build_params %}
+{%- if param.arity == "NONE" %}
+        if self.{{ param.name }}:
+            builder = builder.set({{ param.name }}=True)
+{%- elif param.arity == "ONE" %}
+        if self.{{ param.name }} is not None:
+            builder = builder.set({{ param.name }}=self.{{ param.name }})
+{%- elif param.arg_join == " " %}
+        for value in self.{{ param.name }}:
+            builder = builder.args({{ param.flag | quote }}, value)
+{%- else %}
+        for value in self.{{ param.name }}:
+            builder = builder.args({{ (param.flag ~ "=") | quote }} + value)
+{%- endif %}
+{%- endfor %}
+        return builder
+{% endfor %}

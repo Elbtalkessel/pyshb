@@ -43,10 +43,15 @@ def _param(
     )
 
 
+def _module(schema: CommandSchema) -> str:
+    """Emit one command's module source."""
+    return emit.emit_module([schema])
+
+
 def test_emits_frozen_slots_dataclass() -> None:
     """The generated class is a frozen, slotted dataclass."""
     schema = CommandSchema(name="grep", manpage="grep", summary="match patterns")
-    source = emit.emit_class(schema)
+    source = _module(schema)
     assert "@dataclass(frozen=True, slots=True)" in source
     assert "class grep:" in source
 
@@ -69,7 +74,7 @@ def test_keyword_flag_gets_suffixed_field(flag: str, field: str) -> None:
         manpage="cmd",
         params=(_param(flag),),
     )
-    source = emit.emit_class(schema)
+    source = _module(schema)
     assert f"{field}: bool = False" in source
     assert f'ParamSpec(flag="{flag}")' in source
 
@@ -81,7 +86,7 @@ def test_bool_flag_emits_false_default() -> None:
         manpage="cmd",
         params=(_param("--ignore-case"),),
     )
-    source = emit.emit_class(schema)
+    source = _module(schema)
     assert "ignore_case: bool = False" in source
 
 
@@ -92,7 +97,7 @@ def test_valued_flag_emits_optional_default() -> None:
         manpage="cmd",
         params=(_param("--regexp", arity=ParamArity.ONE),),
     )
-    source = emit.emit_class(schema)
+    source = _module(schema)
     assert "regexp: str | None = None" in source
 
 
@@ -103,11 +108,9 @@ def test_repeatable_flag_emits_sequence() -> None:
         manpage="cmd",
         params=(_param("--exclude", arity=ParamArity.MANY),),
     )
-    class_source = emit.emit_class(schema)
-    assert "exclude: Sequence[str] = ()" in class_source
-
-    module_source = emit.emit_module([schema])
-    assert "from collections.abc import Mapping, Sequence" in module_source
+    source = _module(schema)
+    assert "exclude: Sequence[str] = ()" in source
+    assert "from collections.abc import Mapping, Sequence" in source
 
 
 def test_arg_join_space_emitted() -> None:
@@ -117,7 +120,7 @@ def test_arg_join_space_emitted() -> None:
         manpage="find",
         params=(_param("-type", arity=ParamArity.ONE, arg_join=" "),),
     )
-    source = emit.emit_class(schema)
+    source = _module(schema)
     assert 'ParamSpec(flag="-type", arg_join=" ")' in source
 
 
