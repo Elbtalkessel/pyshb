@@ -171,7 +171,9 @@ def _parse_flag_line(
     long_join: str | None = None
     saw_long = False
 
-    for clause in (part.strip() for part in text.split(", ")):
+    # Split on ", " only where it separates flag aliases (``-a, --all``), not
+    # where it is prose inside a same-line description (``--si  likewise, ...``).
+    for clause in (part.strip() for part in re.split(r", (?=-)", text)):
         if clause.startswith("--"):
             saw_long = True
             body = clause[2:]

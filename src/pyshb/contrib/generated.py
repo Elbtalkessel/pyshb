@@ -253,7 +253,7 @@ class ls:
     group_directories_first: bool = False
     no_group: bool = False
     human_readable: bool = False
-    si: str | None = None
+    si: bool = False
     dereference_command_line: bool = False
     dereference_command_line_symlink_to_dir: bool = False
     hide: str | None = None
@@ -315,7 +315,7 @@ class ls:
         "group_directories_first": ParamSpec(flag="--group-directories-first"),
         "no_group": ParamSpec(flag="--no-group"),
         "human_readable": ParamSpec(flag="--human-readable"),
-        "si": ParamSpec(flag="--si", arg_join=" "),
+        "si": ParamSpec(flag="--si"),
         "dereference_command_line": ParamSpec(flag="--dereference-command-line"),
         "dereference_command_line_symlink_to_dir": ParamSpec(flag="--dereference-command-line-symlink-to-dir"),
         "hide": ParamSpec(flag="--hide"),
@@ -402,8 +402,8 @@ class ls:
             builder = builder.set(no_group=True)
         if self.human_readable:
             builder = builder.set(human_readable=True)
-        if self.si is not None:
-            builder = builder.set(si=self.si)
+        if self.si:
+            builder = builder.set(si=True)
         if self.dereference_command_line:
             builder = builder.set(dereference_command_line=True)
         if self.dereference_command_line_symlink_to_dir:
