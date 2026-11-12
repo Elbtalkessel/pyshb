@@ -21,5 +21,5 @@ dev = [
 # Isn't a direct project dependency, but Zed uses it.
 [tool.basedpyright]
 executionEnvironments = [
-  { root = "tests", extraPaths = ["src"] }
+  { root = "tests", extraPaths = ["src", "codegen"] }
 ]
