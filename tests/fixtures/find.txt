@@ -1,0 +1,48 @@
+FIND(1)                     General Commands Manual                     FIND(1)
+
+NAME
+     find - search for files in a directory hierarchy
+
+SYNOPSIS
+     find [-H] [-L] [-P] [-D debugopts] [-Olevel] [starting-point...] [expression]
+
+DESCRIPTION
+     This manual page documents the GNU version of find.
+
+OPTIONS
+     -D debugopts
+            Print diagnostic information.
+
+     -help, --help
+            Print a summary of the command-line usage of find and exit.
+
+     -version, --version
+            Print the find version number and exit.
+
+EXPRESSION
+     -daystart
+            Measure times from the beginning of today rather than from 24 hours
+            ago.
+
+     -regextype type
+            Changes the regular expression syntax understood by -regex and
+            -iregex tests.
+
+     -maxdepth levels
+            Descend at most levels directories below the starting-points.
+
+     -mindepth levels
+            Do not apply any tests or actions at levels less than levels.
+
+     -amin n
+            File was last accessed less than, more than or exactly n minutes
+            ago.
+
+     -name pattern
+            Base of file name matches shell pattern pattern.
+
+     -type c
+            File is of type c.
+
+     -empty
+            File is empty and is either a regular file or a directory.

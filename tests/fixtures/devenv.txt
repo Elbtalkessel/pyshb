@@ -1,0 +1,49 @@
+devenv(1)                   General Commands Manual                   devenv(1)
+
+NAME
+     devenv - Fast, Declarative, Reproducible, and Composable Developer Environments
+
+SYNOPSIS
+     devenv [--no-tui] [-h|--help] [-V|--version] <subcommands>
+
+DESCRIPTION
+     Fast, Declarative, Reproducible, and Composable Developer Environments
+
+OPTIONS
+     --user-config <USER_CONFIG>
+            Use this user configuration file instead of the XDG default
+
+     -V, --version
+            Print version
+
+     -h, --help
+            Print help (see a summary with '-h')
+
+INPUT OVERRIDES
+     -o, --override-input <NAME> <URI>
+            Override inputs in devenv.yaml.
+
+     -O, --option <OPTION:TYPE> <VALUE>
+            Override configuration options with typed values.
+
+SUBCOMMANDS
+     devenv-init(1)
+            Scaffold devenv.yaml, devenv.nix, and .gitignore.
+
+     devenv-shell(1)
+            Activate the developer environment.
+
+     devenv-up(1)
+            Start processes.
+
+     devenv-processes(1)
+            Start or stop processes.
+
+     devenv-processes-up(1)
+            Start the processes defined in devenv.nix.
+
+     devenv-processes-down(1)
+            Stop the processes defined in devenv.nix.
+
+     devenv-version(1)
+            Print the version of devenv.
