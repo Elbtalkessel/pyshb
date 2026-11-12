@@ -59,10 +59,33 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: The pinned manpage snapshots the generated module is emitted from. Each pair
 #: is ``(command, fixture)``; the fixture is a captured ``man <command>`` subset
 #: under ``tests/fixtures/``. Adding a coreutil means capturing its manpage and
-#: appending one pair here.
+#: appending one pair here. The first ten are the milestone-named set; the rest
+#: are the documented "etc." companions.
 COREUTILS: tuple[tuple[str, str], ...] = (
     ("grep", "grep.txt"),
     ("find", "find.txt"),
+    ("ls", "ls.txt"),
+    ("cat", "cat.txt"),
+    ("mkdir", "mkdir.txt"),
+    ("cp", "cp.txt"),
+    ("mv", "mv.txt"),
+    ("rm", "rm.txt"),
+    ("chmod", "chmod.txt"),
+    ("sort", "sort.txt"),
+    ("uniq", "uniq.txt"),
+    ("wc", "wc.txt"),
+    ("head", "head.txt"),
+    ("tail", "tail.txt"),
+    ("touch", "touch.txt"),
+    ("cut", "cut.txt"),
+    ("tr", "tr.txt"),
+    ("du", "du.txt"),
+    ("df", "df.txt"),
+    ("mktemp", "mktemp.txt"),
+    ("basename", "basename.txt"),
+    ("dirname", "dirname.txt"),
+    ("echo", "echo.txt"),
+    ("printf", "printf.txt"),
 )
 
 #: Where the committed generated module lives.
@@ -80,9 +103,12 @@ def python_name(flag: str) -> str:
         flag: The exact shell spelling (e.g. ``"--ignore-case"``, ``"-type"``).
 
     Returns:
-        The field name, with keyword/builtin collisions suffixed with ``_``.
+        The field name, with keyword/builtin collisions suffixed with ``_`` and
+        non-identifier spellings (``"-1"``) prefixed with ``f_``.
     """
     name = flag.lstrip("-").replace("-", "_")
+    if not name.isidentifier():
+        name = "f_" + name
     if keyword.iskeyword(name) or name in _BUILTIN_NAMES:
         name += "_"
     return name
@@ -128,7 +154,9 @@ def _resolved_params(schema: CommandSchema) -> tuple[ParamSchema, ...]:
 
     ``ParamSchema`` is frozen, so the name is materialised with
     :func:`dataclasses.replace` rather than by mutation. Duplicate field names
-    would produce an uncompilable dataclass, so they raise here.
+    would produce an uncompilable dataclass; when a boolean and a valued
+    spelling of the same flag collapse together (``du --time`` vs
+    ``--time=WORD``) the valued form wins, and any other collision raises.
 
     Args:
         schema: The command schema.
@@ -137,15 +165,22 @@ def _resolved_params(schema: CommandSchema) -> tuple[ParamSchema, ...]:
         The parameters in schema order, each carrying its field name.
     """
     resolved: list[ParamSchema] = []
-    seen: set[str] = set()
+    by_name: dict[str, int] = {}
     for param in schema.params:
         name = python_name(param.flag)
-        if name in seen:
+        if name in by_name:
+            idx = by_name[name]
+            existing = resolved[idx]
+            if existing.arity is ParamArity.NONE and param.arity is not ParamArity.NONE:
+                resolved[idx] = replace(param, python_name=name)
+                continue
+            if param.arity is ParamArity.NONE and existing.arity is not ParamArity.NONE:
+                continue
             raise ValueError(
                 f"{schema.name}: flags {param.flag!r} and another collapse to "
                 f"the same field name {name!r}"
             )
-        seen.add(name)
+        by_name[name] = len(resolved)
         resolved.append(replace(param, python_name=name))
     return tuple(resolved)
 
