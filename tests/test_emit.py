@@ -163,3 +163,31 @@ def test_emitted_source_passes_gates() -> None:
 
     assert isinstance(generated.grep(ignore_case=True).build(), CommandBuilder)
     assert isinstance(generated.find(type_="f").build(), CommandBuilder)
+
+
+def test_coreutils_pin_covers_named_set() -> None:
+    """Every milestone-named coreutil has a ``COREUTILS`` entry."""
+    named = {"ls", "cat", "mkdir", "cp", "mv", "rm", "chmod", "sort", "uniq", "wc"}
+    pinned = {command for command, _ in emit.COREUTILS}
+    assert named <= pinned
+
+
+def test_every_fixture_parses_to_nonempty_schema() -> None:
+    """Each pinned fixture yields a ``CommandSchema`` with at least one param."""
+    for schema in emit.load_schemas():
+        assert schema.params, f"{schema.name} parsed to an empty schema"
+
+
+def test_generated_module_matches_regeneration() -> None:
+    """``emit_module(load_schemas())`` equals the committed module byte-for-byte."""
+    emitted = emit.emit_module(emit.load_schemas())
+    committed = emit.GENERATED_PATH.read_text()
+    assert emitted == committed, "regenerate with `python -m codegen.emit`"
+
+
+def test_keyword_flag_suffixed_in_new_set() -> None:
+    """A new coreutil flag colliding with a builtin is suffixed, spelling kept."""
+    from pyshb.contrib import generated
+
+    assert generated.ls.schema["format_"].flag == "--format"
+    assert generated.df.schema["type_"].flag == "--type"

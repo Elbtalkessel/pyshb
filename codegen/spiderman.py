@@ -36,9 +36,11 @@ _FLAG_PREFIX = "     -"
 # like ``pattern`` is silent damage the schema should not record.
 _NUMERIC_HINTS = frozenset({"n", "num", "number"})
 
-# Sections that never carry flag definitions: NAME is the summary source,
-# SYNOPSIS is a usage listing, DESCRIPTION is prose.
-_NON_FLAG_SECTIONS = frozenset({"NAME", "SYNOPSIS", "DESCRIPTION"})
+# Sections that never carry flag definitions: NAME is the summary source and
+# SYNOPSIS is a usage listing. DESCRIPTION is *not* excluded — the GNU coreutils
+# manpages (help2man-generated) document their flags there rather than in a
+# separate OPTIONS section, and :func:`parse_flags` only matches flag-tag lines.
+_NON_FLAG_SECTIONS = frozenset({"NAME", "SYNOPSIS"})
 
 # An all-uppercase line is a section title.
 _SECTION_RE = re.compile(r"^[A-Z][A-Z ]+$")
@@ -54,7 +56,9 @@ def fetch_manual_lines(command: str) -> list[str]:
         command: The command to fetch, as passed to ``man``.
 
     Returns:
-        The manpage's non-empty lines, leading indentation preserved.
+        The manpage's non-empty lines, leading indentation preserved. groff's
+        line-hyphenation marker (U+2010) is stripped so the captured text is
+        clean ASCII and a hyphenated word re-joins across the line break.
 
     Raises:
         RuntimeError: If ``man`` fails or returns nothing.
@@ -65,7 +69,11 @@ def fetch_manual_lines(command: str) -> list[str]:
     if proc.returncode != 0:
         detail = proc.stderr.strip()
         raise RuntimeError(detail or f"man {command} returned nothing")
-    return [line for line in proc.stdout.splitlines() if line.strip()]
+    return [
+        line.replace("\u2010", "")
+        for line in proc.stdout.splitlines()
+        if line.strip()
+    ]
 
 
 def group_by_section(lines: Sequence[str]) -> Iterator[tuple[str, list[str]]]:
@@ -100,35 +108,80 @@ def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-def _parse_flag_line(text: str) -> tuple[str, str | None, str | None, str | None]:
-    """Parse one stripped flag line into ``(flag, short, hint, arg_join)``.
+def _is_eq_hint(value: str) -> bool:
+    """True if ``value`` is a placeholder, not a literal (``--color=never``).
 
-    Handles the GNU ``-s HINT, --long=HINT`` shape and the find-style
-    ``-flag HINT`` shape. The first short and first long spelling win when a
-    flag has aliases (e.g. ``--color, --colour``).
+    A ``--flag=VALUE`` where ``VALUE`` is lowercase is an inline mention of one
+    concrete value (help2man prose), not the flag definition; the placeholder
+    form is uppercase (``--color=WHEN``) or bracketed.
+    """
+    v = value.strip()
+    if not v:
+        return False
+    if v.startswith(("[", "<", "{")):
+        return True
+    return v.split()[0].isupper()
+
+
+def _is_space_hint(text: str) -> bool:
+    """True if ``text`` is a value placeholder, not a same-line description.
+
+    A space-joined value is a single token (``-D debugopts``, ``-F LIST``),
+    whereas a same-line description is prose (``-c  with -lt: ...``) or a
+    parenthetical note (``-f  (ignored)``).
+    """
+    t = text.strip()
+    if not t:
+        return False
+    if "..." in t:
+        return True
+    if t.startswith(("[", "<", "{")):
+        return True
+    if t.startswith("("):
+        return False
+    return len(t.split()) == 1
+
+
+def _parse_flag_line(
+    line: str,
+) -> tuple[str, str | None, str | None, str | None] | None:
+    """Parse one flag-tag line into ``(flag, short, hint, arg_join)``.
+
+    Handles the GNU ``-s HINT, --long=HINT`` shape, the find-style
+    ``-flag HINT`` shape, and the help2man shapes where the description runs on
+    the same line as the flag (``-c  with -lt: ...``) or where prose wraps onto
+    a dash-prefixed line (``-f  or  --force option ...``). The first short and
+    first long spelling win when a flag has aliases.
 
     Args:
-        text: The stripped flag line, e.g. ``-e PATTERNS, --regexp=PATTERNS``.
+        line: The raw flag line, five-space indent and all.
 
     Returns:
         ``flag`` — canonical spelling (long form when present, else short);
         ``short`` — the single-dash spelling, for reference; ``hint`` — the
         argument placeholder, or ``None`` for a boolean flag; ``arg_join`` —
-        ``"="``, ``" "`` or ``None`` (inherit the command default).
+        ``"="``, ``" "`` or ``None`` (inherit the command default). ``None``
+        when the line is prose that merely wraps onto a dash, not a flag.
     """
+    text = line[5:]
     short: str | None = None
     short_hint: str | None = None
     long: str | None = None
     long_hint: str | None = None
     long_join: str | None = None
+    saw_long = False
 
-    for clause in (part.strip() for part in text.split(", ")):
+    # Split on ", " only where it separates flag aliases (``-a, --all``), not
+    # where it is prose inside a same-line description (``--si  likewise, ...``).
+    for clause in (part.strip() for part in re.split(r", (?=-)", text)):
         if clause.startswith("--"):
+            saw_long = True
             body = clause[2:]
             if "[" in body:
-                # Optional value: --flag[=VALUE] — keep the bracket as the hint
-                # so the classifier can record the ambiguity.
+                # Optional value: --flag[=VALUE] or --flag=[VALUE] — keep the
+                # bracket as the hint so the classifier records the ambiguity.
                 head, _, bracketed = body.partition("[")
+                head = head.rstrip("=")
                 if long is None:
                     long = "--" + head
                 if long_hint is None:
@@ -137,30 +190,37 @@ def _parse_flag_line(text: str) -> tuple[str, str | None, str | None, str | None
                     long_join = "="
             else:
                 name, sep, hint = body.partition("=")
-                if sep:
-                    # --flag=VALUE
+                if sep and hint and _is_eq_hint(hint):
+                    # --flag=VALUE (placeholder)
                     if long is None:
                         long = "--" + name
-                    if hint and long_hint is None:
+                    if long_hint is None:
                         long_hint = hint
-                    long_join = "="
+                        long_join = "="
+                elif sep:
+                    # --flag=literal (e.g. "--color=never" in prose): not a flag
+                    # definition — do not record the long spelling.
+                    continue
                 else:
-                    # --flag VALUE
+                    # --flag or --flag VALUE
                     head, _, tail = name.partition(" ")
-                    if long is None:
-                        long = "--" + head
-                    if tail:
-                        if long_hint is None:
+                    if head and all(c.isalnum() or c == "-" for c in head):
+                        if long is None:
+                            long = "--" + head
+                        if tail and _is_space_hint(tail) and long_hint is None:
                             long_hint = tail
-                        long_join = " "
+                            long_join = " "
         elif clause.startswith("-"):
             head, _, tail = clause[1:].partition(" ")
-            if short is None:
-                short = "-" + head
-            if tail and short_hint is None:
-                short_hint = tail
+            if head and head.isalnum():
+                if short is None:
+                    short = "-" + head
+                if tail and _is_space_hint(tail) and short_hint is None:
+                    short_hint = tail
 
     flag = long or short or ""
+    if not flag:
+        return None
     hint = long_hint if long_hint is not None else short_hint
     if long_join is not None:
         arg_join = long_join
@@ -168,6 +228,15 @@ def _parse_flag_line(text: str) -> tuple[str, str | None, str | None, str | None
         arg_join = " "
     else:
         arg_join = None
+
+    # A short-only boolean flag may carry its description on the same line,
+    # indented to column 13. Trailing text that starts earlier is a prose
+    # paragraph wrapping onto a dash, not a flag body.
+    if hint is None and not saw_long and short is not None:
+        tag_end = 5 + len(short)
+        if len(line) > tag_end and line[tag_end:12].strip():
+            return None
+
     return flag, short, hint, arg_join
 
 
@@ -254,7 +323,13 @@ def parse_flags(lines: Sequence[str]) -> Iterator[ParamSchema]:
                 yield _build_param(
                     flag, short, arity, value_type, arg_join, assumption, desc
                 )
-            flag, short, hint, arg_join = _parse_flag_line(line.strip())
+            parsed = _parse_flag_line(line)
+            if parsed is None:
+                flag = None
+                short = None
+                desc = []
+                continue
+            flag, short, hint, arg_join = parsed
             arity, value_type, assumption = _classify_hint(hint)
             desc = []
         elif flag is not None and _indent(line) > 5 and line.strip():
